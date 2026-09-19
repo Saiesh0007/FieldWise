@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//d/Codex/**)",
+      "Bash(powershell -NoProfile -Command 'Get-CimInstance Win32_PageFileUsage | Select-Object Name,AllocatedBaseSize,CurrentUsage | Format-Table -AutoSize | Out-String; Get-Process | Sort-Object WS -Descending | Select-Object -First 8 Name,@{n='\\\\''MB'\\\\'';e={[int]\\($_.WS/1MB\\)}} | Format-Table -AutoSize | Out-String')",
+      "Bash(./gradlew --console=plain --no-daemon :app:testDebugUnitTest)",
+      "Bash(echo \"EXIT=$?\")",
+      "Bash(./gradlew --console=plain --no-daemon :app:compileDebugKotlin)",
+      "Bash(./gradlew testDebugUnitTest --console=plain)",
+      "Bash(grep -vE \"^> Task .*\\(UP-TO-DATE|NO-SOURCE\\)$\")",
+      "Bash(cd \"D:\\\\Project\\\\FieldWise\\\\mobile\\\\app\\\\src\\\\main\\\\java\\\\com\\\\fieldwise\" && grep -nE \"Sortie\\\\\\(|sortie =|sortieIndex|index = \" planner/SprayPathPlanner.kt | head -12; echo \"--- notes text ---\"; grep -nE \"notes|add\\\\\\(\\\\\"\" planner/SprayPathPlanner.kt | head -12; echo \"--- Turns/other planner files ---\"; ls planner; echo \"--- gradle test deps ---\"; grep -n \"testImplementation\" ../../../../../build.gradle.kts)",
+      "Read(//d//**)",
+      "Bash(grep -vE \"^> Task .*\\(UP-TO-DATE|NO-SOURCE|SKIPPED\\)$\")"
+    ]
+  }
+}
