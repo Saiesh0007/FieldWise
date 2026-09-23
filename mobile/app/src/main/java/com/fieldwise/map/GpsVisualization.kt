@@ -18,9 +18,9 @@ fun GpsAccuracyBadge(
 ) {
     val (text, color) = when {
         accuracy == null -> "Acquiring GPS..." to Color.Yellow
-        accuracy <= GpsPolicy.GOOD_M -> "✓ Good (±${accuracy.roundToInt()}m)" to Color.Green
-        accuracy <= GpsPolicy.FAIR_M -> "✓ Fair (±${accuracy.roundToInt()}m)" to Color(0xFFFF9800)
-        else -> "⚠ Poor (±${accuracy.roundToInt()}m)" to Color.Red
+        accuracy <= GpsPolicy.GOOD_M -> "Good (±${accuracy.roundToInt()}m)" to Color.Green
+        accuracy <= GpsPolicy.FAIR_M -> "Fair (±${accuracy.roundToInt()}m)" to Color(0xFFFF9800)
+        else -> "Poor (±${accuracy.roundToInt()}m)" to Color.Red
     }
 
     Card(

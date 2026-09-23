@@ -48,6 +48,15 @@ fun MapScreen(state: MapState, actions: MapActions) {
                 .statusBarsPadding()
                 .padding(8.dp)
         ) {
+            PlaceSearchBar(
+                search = state.search,
+                onQuery = actions.onSearchQuery,
+                onSubmit = actions.onSearchSubmit,
+                onPick = actions.onSearchPick,
+                onClear = actions.onSearchClear,
+                onMyLocation = actions.onGoToMyLocation,
+                modifier = Modifier.padding(bottom = 6.dp)
+            )
             Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                 MapLayer.values().forEach { layer ->
                     FilterChip(

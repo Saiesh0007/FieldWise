@@ -22,6 +22,11 @@ import com.fieldwise.model.ValidationReport
 import com.fieldwise.model.ZoneKind
 import com.fieldwise.planner.PlanResult
 import com.fieldwise.planner.SprayPathPlanner
+import com.fieldwise.search.CoordinateParse
+import com.fieldwise.search.CoordinateParser
+import com.fieldwise.search.PlaceResult
+import com.fieldwise.search.SearchOutcome
+import java.util.Locale
 import java.util.UUID
 
 private fun newFieldId(): String = "FIELD-" + UUID.randomUUID().toString().take(8).uppercase()
@@ -36,6 +41,22 @@ data class ZoneDraft(val kind: ZoneKind, val corners: List<LatLng> = emptyList()
 
 /** The pilot's explicit sign-offs. Any change to the field, zones or parameters clears all of them. */
 data class Confirmations(val boundaryAt: Long? = null, val parametersAt: Long? = null, val missionAt: Long? = null)
+
+/** A one-off request to move the map. A new [id] makes the map move even if the target is the same as before. */
+data class FocusRequest(val point: LatLng, val zoom: Double, val id: Int)
+
+/** The place search box: what was typed, what came back, and the place currently marked on the map. */
+data class SearchState(
+    val query: String = "",
+    val searching: Boolean = false,
+    val results: List<PlaceResult> = emptyList(),
+    val message: String? = null,
+    val pin: PlaceResult? = null
+)
+
+/** Close enough to trace a field from an exact coordinate, and a sensible view of a named village or town. */
+const val COORDINATE_ZOOM = 17.0
+const val MY_LOCATION_ZOOM = 17.0
 
 /** The part of [MapState] that is saved to disk, so autosave only runs when something worth keeping changed. */
 data class PersistKey(
@@ -67,6 +88,8 @@ data class MapState(
     val confirmations: Confirmations = Confirmations(),
     val exports: List<ExportRecord> = emptyList(),
     val reviewOpen: Boolean = false,
+    val search: SearchState = SearchState(),
+    val focus: FocusRequest? = null,
     /** A message for the user, shown until dismissed. */
     val notice: String? = null
 ) {
@@ -315,6 +338,62 @@ data class MapState(
     fun withLayer(layer: MapLayer): MapState = copy(layer = layer)
 
     fun withNotice(text: String?): MapState = copy(notice = text)
+
+    // ---- finding a place ----
+
+    private fun focusOn(point: LatLng, zoom: Double) = FocusRequest(point, zoom, (focus?.id ?: 0) + 1)
+
+    fun withSearchQuery(text: String): MapState =
+        copy(search = search.copy(query = text, searching = false, results = emptyList(), message = null))
+
+    /**
+     * Coordinates and map links are read here, at once and offline. Anything else is a place name: the result then has
+     * [SearchState.searching] set, and the caller looks it up and hands the answer to [withSearchOutcome].
+     */
+    fun submitSearch(): MapState {
+        val text = search.query.trim()
+        if (text.isEmpty() || search.searching) return this
+        return when (val parsed = CoordinateParser.parse(text)) {
+            is CoordinateParse.Found -> choosePlace(
+                PlaceResult(
+                    String.format(Locale.ROOT, "%.5f, %.5f", parsed.point.lat, parsed.point.lng),
+                    parsed.point,
+                    COORDINATE_ZOOM
+                )
+            )
+            is CoordinateParse.Invalid -> copy(search = search.copy(message = parsed.message, results = emptyList()))
+            CoordinateParse.NotCoordinates -> copy(search = search.copy(searching = true, message = null, results = emptyList()))
+        }
+    }
+
+    /** Shows the answer to a place lookup, unless the text was changed or cleared while it was running. */
+    fun withSearchOutcome(outcome: SearchOutcome, forQuery: String): MapState {
+        if (!search.searching || forQuery.trim() != search.query.trim()) return this
+        return when (outcome) {
+            is SearchOutcome.Found ->
+                if (outcome.results.size == 1) choosePlace(outcome.results[0])
+                else copy(search = search.copy(searching = false, results = outcome.results.take(5), message = null))
+            SearchOutcome.NotFound -> copy(
+                search = search.copy(
+                    searching = false,
+                    message = "No place found for \"${forQuery.trim()}\". Try a nearby town or village, or paste coordinates like 18.5204, 73.8567."
+                )
+            )
+            is SearchOutcome.Failed -> copy(search = search.copy(searching = false, message = outcome.message))
+        }
+    }
+
+    /** Marks the place on the map and moves the map to it. */
+    fun choosePlace(place: PlaceResult): MapState =
+        copy(search = SearchState(query = place.name, pin = place), focus = focusOn(place.point, place.zoom))
+
+    fun clearSearch(): MapState = copy(search = SearchState())
+
+    fun goToMyLocation(): MapState {
+        val here = gpsState.currentLocation
+            ?: return copy(notice = "Your position is not known yet. Check that location is turned on, then try again.")
+        return copy(focus = focusOn(here, MY_LOCATION_ZOOM))
+    }
 }
 
 enum class MapLayer(val label: String, val attribution: String) {

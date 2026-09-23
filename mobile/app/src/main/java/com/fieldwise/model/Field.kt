@@ -12,12 +12,14 @@ enum class FieldOrigin(val label: String) {
 data class ImageryInfo(val provider: String, val date: String? = null)
 
 enum class ZoneKind(val label: String) {
-    WATER("Water"),
-    BUILDING("Building"),
+    WATER("Pond"),
+    BUILDING("House"),
     ROAD("Road"),
+    TREE("Tree"),
+    POLE("Electric pole"),
     LIVESTOCK("Livestock"),
     TREATED("Previously treated"),
-    OBSTACLE("Obstacle"),
+    OBSTACLE("Custom restricted zone"),
     OTHER("Other")
 }
 

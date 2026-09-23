@@ -20,9 +20,10 @@ sealed interface CoordinateParse {
 object CoordinateParser {
     private const val NUMBER = """-?\d+(?:\.\d+)?"""
 
+    /** In order of preference: the exact place, then the map centre, then a query parameter. */
     private val linkPatterns = listOf(
-        Regex("@($NUMBER),($NUMBER)"),
         Regex("!3d($NUMBER)!4d($NUMBER)"),
+        Regex("@($NUMBER),($NUMBER)"),
         Regex("[?&](?:q|ll|query|center|destination)=($NUMBER)(?:,|%2C)\\s*($NUMBER)", RegexOption.IGNORE_CASE)
     )
     private val token = Regex("$NUMBER|[A-Za-z]+")

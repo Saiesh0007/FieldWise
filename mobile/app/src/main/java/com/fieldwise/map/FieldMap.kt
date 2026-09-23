@@ -35,9 +35,16 @@ import android.graphics.Color as AndroidColor
 
 private val START_POINT = GeoPoint(18.5204, 73.8567)
 
-/** The osmdroid map plus every overlay for the current [MapState]. Taps that hit nothing are reported through [onTap]. */
+/** The osmdroid map plus every overlay for the current [MapState]. Taps that hit nothing are reported through [onTap].
+ * Optional [comparisonPlan] draws a second route (e.g. standard vs optimized), and [dronePosition] draws a marker for simulation. */
 @Composable
-internal fun FieldMap(state: MapState, onTap: (LatLng) -> Unit, modifier: Modifier = Modifier) {
+internal fun FieldMap(
+    state: MapState,
+    onTap: (LatLng) -> Unit,
+    modifier: Modifier = Modifier,
+    comparisonPlan: SprayPlan? = null,
+    dronePosition: LatLng? = null
+) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val currentOnTap by rememberUpdatedState(onTap)
@@ -96,6 +103,15 @@ internal fun FieldMap(state: MapState, onTap: (LatLng) -> Unit, modifier: Modifi
         }
     }
 
+    // A searched place, or "my location", moves the map. It also stops the opening view from overriding the choice.
+    val focus = state.focus
+    LaunchedEffect(focus?.id) {
+        if (focus != null) {
+            centred = true
+            mapView.controller.animateTo(GeoPoint(focus.point.lat, focus.point.lng), focus.zoom, 700L)
+        }
+    }
+
     val sortieSegments = remember(state.sprayState.plan) { sortieSegments(state.sprayState.plan) }
 
     AndroidView(
@@ -107,7 +123,7 @@ internal fun FieldMap(state: MapState, onTap: (LatLng) -> Unit, modifier: Modifi
 
             map.overlays.removeAll(dynamicOverlays.toSet())
             dynamicOverlays.clear()
-            dynamicOverlays.addAll(buildOverlays(map, state, sortieSegments))
+            dynamicOverlays.addAll(buildOverlays(map, state, sortieSegments, dronePosition))
             map.overlays.addAll(dynamicOverlays)
             map.invalidate()
         }
@@ -147,6 +163,8 @@ private val LOCATION_COLOR = 0xFF2979FF.toInt()
 private val ZONE_OUTLINE = 0xFFFF1744.toInt()
 private val ZONE_FILL = 0x66FF1744
 private val DRAFT_COLOR = 0xFFFFA000.toInt()
+private val PIN_COLOR = 0xFFD500F9.toInt()
+private val DRONE_COLOR = 0xFFFF1744.toInt()
 
 /** The flown route split per sortie, so each tank load gets its own colour. Transit between flights is not drawn. */
 private fun sortieSegments(plan: SprayPlan?): List<Pair<Int, List<GeoPoint>>> {
@@ -174,7 +192,8 @@ private fun closedRing(ring: List<LatLng>): List<GeoPoint> =
 private fun buildOverlays(
     map: MapView,
     state: MapState,
-    sortieSegments: List<Pair<Int, List<GeoPoint>>>
+    sortieSegments: List<Pair<Int, List<GeoPoint>>>,
+    dronePosition: LatLng? = null
 ): List<Overlay> {
     val out = ArrayList<Overlay>()
 
@@ -212,6 +231,8 @@ private fun buildOverlays(
     }
 
     state.gpsState.currentLocation?.let { out.add(dot(map, geo(it), LOCATION_COLOR, 14)) }
+    state.search.pin?.let { out.add(dot(map, geo(it.point), PIN_COLOR, 20)) }
+    dronePosition?.let { out.add(dot(map, geo(it), DRONE_COLOR, 24)) }
     return out
 }
 

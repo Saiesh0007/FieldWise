@@ -27,7 +27,7 @@ class MissionFlowTest {
     fun `drawing a zone adds it with a numbered name`() {
         val state = withZone(field(), 80.0, 30.0, 120.0, 70.0, ZoneKind.WATER)
         assertEquals(1, state.zones.size)
-        assertEquals("Water 1", state.zones[0].name)
+        assertEquals("Pond 1", state.zones[0].name)
         assertNull(state.zoneDraft)
         assertNull(state.notice)
     }
@@ -38,7 +38,7 @@ class MissionFlowTest {
         state = withZone(state, 50.0, 10.0, 70.0, 30.0, at = 2L)
         state = state.removeZone(state.zones[0].id)
         state = withZone(state, 90.0, 10.0, 110.0, 30.0, at = 3L)
-        assertEquals(listOf("Water 2", "Water 3"), state.zones.map { it.name })
+        assertEquals(listOf("Pond 2", "Pond 3"), state.zones.map { it.name })
         assertEquals(2, state.zones.map { it.id }.toSet().size)
     }
 

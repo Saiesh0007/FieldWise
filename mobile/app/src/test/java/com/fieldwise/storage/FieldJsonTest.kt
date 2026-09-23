@@ -52,7 +52,7 @@ class FieldJsonTest {
         assertEquals(original.boundaryState.history.applied[0].gps, restored.boundaryState.history.applied[0].gps)
 
         assertEquals(1, restored.zones.size)
-        assertEquals("Building 1", restored.zones[0].name)
+        assertEquals("House 1", restored.zones[0].name)
         assertEquals(ZoneKind.BUILDING, restored.zones[0].kind)
         assertEquals(2_000L, restored.zones[0].createdAt)
         assertEquals(AreaOps.areaSqm(original.zones[0].polygon), AreaOps.areaSqm(restored.zones[0].polygon), 0.001)

@@ -4,6 +4,7 @@ import com.fieldwise.mission.ExportFormat
 import com.fieldwise.model.LatLng
 import com.fieldwise.model.SprayConfig
 import com.fieldwise.model.ZoneKind
+import com.fieldwise.search.PlaceResult
 
 /** Everything the screen can ask for. The screen renders [MapState]; the activity decides what each action does. */
 data class MapActions(
@@ -32,5 +33,10 @@ data class MapActions(
     val onConfirmParameters: (Boolean) -> Unit,
     val onConfirmMission: () -> Unit,
     val onExport: (ExportFormat) -> Unit,
+    val onSearchQuery: (String) -> Unit,
+    val onSearchSubmit: () -> Unit,
+    val onSearchPick: (PlaceResult) -> Unit,
+    val onSearchClear: () -> Unit,
+    val onGoToMyLocation: () -> Unit,
     val onDismissNotice: () -> Unit
 )
