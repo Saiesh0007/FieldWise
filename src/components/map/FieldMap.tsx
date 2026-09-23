@@ -9,6 +9,7 @@ import 'maplibre-gl/dist/maplibre-gl.css'
 import { useEffect, useRef, useState } from 'react'
 import { PhoneFrameOverlay } from '@/components/map/PhoneFrameOverlay'
 import { Button } from '@/components/ui/Button'
+import { circleToPolygon } from '@/lib/geo/circleObstacle'
 import { createLocalProjection, type LocalProjection } from '@/lib/geo/projection'
 import { SAMPLE_FIELD_CENTER } from '@/lib/geo/sampleField'
 import type { FieldBoundary, LatLng, NoSprayZone, SprayPlan } from '@/lib/geo/types'
@@ -53,6 +54,7 @@ const SOURCE = {
   heatmap: 'heatmap',
   circlePreview: 'circle-preview',
   circleCenterPoint: 'circle-center-point',
+  zoneEditHandles: 'zone-edit-handles',
 } as const
 
 export type DrawTarget = 'boundary' | 'zone' | 'circle-zone' | null
@@ -87,6 +89,22 @@ interface FieldMapProps {
    * when drawTarget === 'circle-zone'.
    */
   onCircleZoneFinish?: (center: LatLng, radiusM: number) => void
+
+  /**
+   * Edit Obstacle (AeroGCS Green §12.3) — while set, the named zone's
+   * vertices render as draggable handles: dragging one on a polygon
+   * zone repositions just that vertex; dragging the (single) handle on
+   * a circle zone resizes it, keeping it a true circle. A plain click
+   * (no drag) on a handle selects it via onEditVertexSelect, for the
+   * panel's "Delete point" action; clicking empty map deselects.
+   */
+  editingZoneId?: string | null
+  editingVertexIndex?: number | null
+  onZoneEdit?: (id: string, update: { vertices: LatLng[]; radiusM?: number }) => void
+  onEditVertexSelect?: (index: number | null) => void
+  /** "Delete point" — only offered for a selected vertex on a polygon zone with more than 3 vertices. */
+  onDeleteEditVertex?: () => void
+  onZoneEditDone?: () => void
   /** In-progress GPS walk points (real or simulated), drawn the same way as a click-drawn polygon. */
   liveWalkPath?: LatLng[]
 
@@ -193,6 +211,12 @@ export function FieldMap({
   onDrawFinish,
   onDrawCancel,
   onCircleZoneFinish,
+  editingZoneId = null,
+  editingVertexIndex = null,
+  onZoneEdit,
+  onEditVertexSelect,
+  onDeleteEditVertex,
+  onZoneEditDone,
   liveWalkPath = [],
   droneCaptureActive = false,
   onDroneCapturePoint,
@@ -213,6 +237,19 @@ export function FieldMap({
   // live cursor position (and the next click) determine the radius.
   const [circleCenter, setCircleCenter] = useState<LatLng | null>(null)
   const [circleRadiusM, setCircleRadiusM] = useState(0)
+
+  // Edit Obstacle session: while a vertex/handle is being dragged, the
+  // edited zone's live (uncommitted) vertices render locally — the store
+  // only gets one update, on release, so this doesn't trigger a full
+  // re-plan on every pixel of drag.
+  const [liveEditVertices, setLiveEditVertices] = useState<LatLng[] | null>(null)
+  const liveEditVerticesRef = useRef<LatLng[] | null>(null)
+  liveEditVerticesRef.current = liveEditVertices
+  const isDraggingZoneVertexRef = useRef(false)
+  const dragVertexIndexRef = useRef<number | null>(null)
+  /** Whether the current handle mousedown actually moved — a click handler fires right after mouseup even following a drag, and this tells it to swallow that click instead of treating it as a fresh select/deselect tap. */
+  const zoneVertexDragMovedRef = useRef(false)
+
   const lastFittedBoundaryId = useRef<string | null>(null)
   const [usingFallbackTiles, setUsingFallbackTiles] = useState(false)
   const [baseMapMode, setBaseMapModeState] = useState<BaseMapMode>('satellite')
@@ -252,6 +289,14 @@ export function FieldMap({
   circleCenterRef.current = circleCenter
   const onCircleZoneFinishRef = useRef(onCircleZoneFinish)
   onCircleZoneFinishRef.current = onCircleZoneFinish
+  const editingZoneIdRef = useRef(editingZoneId)
+  editingZoneIdRef.current = editingZoneId
+  const noSprayZonesRef = useRef(noSprayZones)
+  noSprayZonesRef.current = noSprayZones
+  const onZoneEditRef = useRef(onZoneEdit)
+  onZoneEditRef.current = onZoneEdit
+  const onEditVertexSelectRef = useRef(onEditVertexSelect)
+  onEditVertexSelectRef.current = onEditVertexSelect
 
   // Drawing is reset whenever the target changes (including turning off).
   useEffect(() => {
@@ -259,6 +304,14 @@ export function FieldMap({
     setCircleCenter(null)
     setCircleRadiusM(0)
   }, [drawTarget])
+
+  // Edit-obstacle session is reset whenever the target zone changes
+  // (including leaving edit mode entirely).
+  useEffect(() => {
+    setLiveEditVertices(null)
+    isDraggingZoneVertexRef.current = false
+    dragVertexIndexRef.current = null
+  }, [editingZoneId])
 
   // Tracks whether any currently-loaded satellite tile actually came
   // from the backup provider (see resilientSatelliteTiles.ts) — drives
@@ -303,12 +356,12 @@ export function FieldMap({
   useEffect(() => {
     const map = mapRef.current
     if (!map) return
-    if (correctionTarget) {
+    if (correctionTarget || editingZoneId) {
       map.dragPan.disable()
     } else {
       map.dragPan.enable()
     }
-  }, [correctionTarget])
+  }, [correctionTarget, editingZoneId])
 
   // ---- Map lifecycle -----------------------------------------------
   useEffect(() => {
@@ -449,6 +502,30 @@ export function FieldMap({
         paint: { 'circle-radius': 5, 'circle-color': '#dc2626', 'circle-stroke-color': '#fff', 'circle-stroke-width': 1.5 },
       })
 
+      // Edit Obstacle: draggable vertex handles for whichever zone is
+      // currently being edited — a wide invisible layer for generous
+      // hit-testing (matching the pilot-marker pattern) under the small
+      // visible dot, with the selected vertex (candidate for deletion)
+      // highlighted.
+      map.addSource(SOURCE.zoneEditHandles, { type: 'geojson', data: EMPTY_FEATURE_COLLECTION })
+      map.addLayer({
+        id: 'zone-edit-handle-hit',
+        type: 'circle',
+        source: SOURCE.zoneEditHandles,
+        paint: { 'circle-radius': 16, 'circle-opacity': 0 },
+      })
+      map.addLayer({
+        id: 'zone-edit-handle-dot',
+        type: 'circle',
+        source: SOURCE.zoneEditHandles,
+        paint: {
+          'circle-radius': 6,
+          'circle-color': ['case', ['boolean', ['get', 'selected'], false], '#7c3aed', '#2563eb'],
+          'circle-stroke-color': '#ffffff',
+          'circle-stroke-width': 2,
+        },
+      })
+
       // Spray plan: spraying legs solid, transit legs dashed — kept as
       // two separate layers/sources rather than one data-driven layer
       // because line-dasharray isn't a data-expression-safe paint
@@ -583,6 +660,19 @@ export function FieldMap({
         onDroneCapturePointRef.current?.({ lon: e.lngLat.lng, lat: e.lngLat.lat })
         return
       }
+      if (editingZoneIdRef.current) {
+        // A click fires right after mouseup even following a drag —
+        // swallow it here rather than reinterpreting the drag's release
+        // as a fresh select/deselect tap.
+        if (zoneVertexDragMovedRef.current) {
+          zoneVertexDragMovedRef.current = false
+          return
+        }
+        const features = map.queryRenderedFeatures(e.point, { layers: ['zone-edit-handle-hit'] })
+        const idx = features[0]?.properties?.vertexIndex as number | undefined
+        onEditVertexSelectRef.current?.(idx ?? null)
+        return
+      }
       if (drawTargetRef.current === 'circle-zone') {
         const clicked: LatLng = { lon: e.lngLat.lng, lat: e.lngLat.lat }
         if (!circleCenterRef.current) {
@@ -650,6 +740,50 @@ export function FieldMap({
       map.getCanvas().style.cursor = correctionActiveRef.current ? 'grab' : ''
     }
 
+    // Edit Obstacle: drag a vertex handle. Same off-canvas-release
+    // safety net as the pilot marker above (a `buttons` check inside
+    // mousemove, plus a window-level mouseup listener).
+    const stopDraggingZoneVertex = () => {
+      if (!isDraggingZoneVertexRef.current) return
+      isDraggingZoneVertexRef.current = false
+      map.getCanvas().style.cursor = editingZoneIdRef.current ? 'grab' : ''
+      const zoneId = editingZoneIdRef.current
+      const vertices = liveEditVerticesRef.current
+      if (zoneId && vertices) {
+        const zone = noSprayZonesRef.current.find((z) => z.id === zoneId)
+        let radiusM: number | undefined
+        if (zone?.shape === 'circle' && zone.center) {
+          const local = createLocalProjection(zone.center).toLocal(vertices[0])
+          radiusM = Math.hypot(local.x, local.y)
+        }
+        onZoneEditRef.current?.(zoneId, { vertices, radiusM })
+      }
+      // The commit above updates the store; drop the local live-preview
+      // override so subsequent renders read from that fresh store data
+      // instead of this now-stale drag snapshot (a later action — like
+      // deleting a different vertex — would otherwise keep rendering
+      // this stale array and appear to silently no-op).
+      setLiveEditVertices(null)
+      dragVertexIndexRef.current = null
+    }
+
+    map.on('mousedown', 'zone-edit-handle-hit', (e) => {
+      if (!editingZoneIdRef.current) return
+      const idx = e.features?.[0]?.properties?.vertexIndex as number | undefined
+      if (idx === undefined) return
+      e.preventDefault()
+      isDraggingZoneVertexRef.current = true
+      zoneVertexDragMovedRef.current = false
+      dragVertexIndexRef.current = idx
+      map.getCanvas().style.cursor = 'grabbing'
+    })
+    map.on('mouseenter', 'zone-edit-handle-hit', () => {
+      if (editingZoneIdRef.current) map.getCanvas().style.cursor = 'grab'
+    })
+    map.on('mouseleave', 'zone-edit-handle-hit', () => {
+      if (editingZoneIdRef.current && !isDraggingZoneVertexRef.current) map.getCanvas().style.cursor = ''
+    })
+
     map.on('mousedown', 'pilot-marker-hit', (e) => {
       if (!correctionActiveRef.current) return
       e.preventDefault()
@@ -668,6 +802,30 @@ export function FieldMap({
         const proj = createLocalProjection(circleCenterRef.current)
         const local = proj.toLocal(hovered)
         setCircleRadiusM(Math.max(1, Math.hypot(local.x, local.y)))
+      }
+      if (isDraggingZoneVertexRef.current) {
+        if (e.originalEvent.buttons === 0) {
+          stopDraggingZoneVertex()
+        } else {
+          zoneVertexDragMovedRef.current = true
+          const zoneId = editingZoneIdRef.current
+          const idx = dragVertexIndexRef.current
+          const zone = zoneId ? noSprayZonesRef.current.find((z) => z.id === zoneId) : undefined
+          if (zone && idx !== null) {
+            const hovered: LatLng = { lon: e.lngLat.lng, lat: e.lngLat.lat }
+            if (zone.shape === 'circle' && zone.center) {
+              // Any point on a circle's edge resizes it uniformly — regenerate the whole ring from the new radius, keeping it a true circle.
+              const local = createLocalProjection(zone.center).toLocal(hovered)
+              const radiusM = Math.max(1, Math.hypot(local.x, local.y))
+              setLiveEditVertices(circleToPolygon(zone.center, radiusM))
+            } else {
+              const base = liveEditVerticesRef.current ?? zone.vertices
+              const next = base.slice()
+              next[idx] = hovered
+              setLiveEditVertices(next)
+            }
+          }
+        }
       }
       if (!isDraggingPilotRef.current) return
       if (e.originalEvent.buttons === 0) {
@@ -704,9 +862,12 @@ export function FieldMap({
     })
     map.on('mouseup', stopDraggingPilot)
     window.addEventListener('mouseup', stopDraggingPilot)
+    map.on('mouseup', stopDraggingZoneVertex)
+    window.addEventListener('mouseup', stopDraggingZoneVertex)
 
     return () => {
       window.removeEventListener('mouseup', stopDraggingPilot)
+      window.removeEventListener('mouseup', stopDraggingZoneVertex)
       map.remove()
       mapRef.current = null
     }
@@ -776,8 +937,45 @@ export function FieldMap({
   useEffect(() => {
     const map = mapRef.current
     if (!map || !loaded) return
-    setData(map, SOURCE.zones, zonesToFeatureCollection(noSprayZones))
-  }, [noSprayZones, loaded])
+    // While a vertex of the edited zone is mid-drag, render that zone with
+    // its live (uncommitted) vertices so the fill/outline reshapes in real
+    // time — every other zone renders from the committed store data as usual.
+    const renderedZones =
+      editingZoneId && liveEditVertices
+        ? noSprayZones.map((z) => (z.id === editingZoneId ? { ...z, vertices: liveEditVertices } : z))
+        : noSprayZones
+    setData(map, SOURCE.zones, zonesToFeatureCollection(renderedZones))
+  }, [noSprayZones, editingZoneId, liveEditVertices, loaded])
+
+  // Edit Obstacle: draggable vertex handles for the zone being edited.
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !loaded) return
+
+    if (!editingZoneId) {
+      setData(map, SOURCE.zoneEditHandles, EMPTY_FEATURE_COLLECTION)
+      return
+    }
+    const zone = noSprayZones.find((z) => z.id === editingZoneId)
+    if (!zone) {
+      setData(map, SOURCE.zoneEditHandles, EMPTY_FEATURE_COLLECTION)
+      return
+    }
+    const vertices = liveEditVertices ?? zone.vertices
+    // A circle only needs one handle (any point on its edge resizes it
+    // uniformly) — its own first vertex, always due east of center.
+    const handleVertices = zone.shape === 'circle' ? vertices.slice(0, 1) : vertices
+
+    const handles: GeoJSON.FeatureCollection<GeoJSON.Point> = {
+      type: 'FeatureCollection',
+      features: handleVertices.map((v, i) => ({
+        type: 'Feature',
+        properties: { vertexIndex: i, selected: i === editingVertexIndex },
+        geometry: { type: 'Point', coordinates: [v.lon, v.lat] },
+      })),
+    }
+    setData(map, SOURCE.zoneEditHandles, handles)
+  }, [editingZoneId, editingVertexIndex, noSprayZones, liveEditVertices, loaded])
 
   useEffect(() => {
     const map = mapRef.current
@@ -1112,6 +1310,30 @@ export function FieldMap({
           </span>
         </div>
       )}
+
+      {editingZoneId && (() => {
+        const zone = noSprayZones.find((z) => z.id === editingZoneId)
+        const canDeleteVertex = zone?.shape !== 'circle' && editingVertexIndex !== null && (zone?.vertices.length ?? 0) > 3
+        return (
+          <div className="absolute left-1/2 top-4 z-10 -translate-x-1/2 rounded-(--radius-card) border border-(--border-subtle) bg-(--surface-panel) px-4 py-2.5 shadow-(--shadow-panel)">
+            <div className="flex items-center gap-3">
+              <span className="text-sm text-(--text-primary)">
+                {zone?.shape === 'circle'
+                  ? "Drag the circle's edge point to resize it."
+                  : 'Drag a point to move it, or click one and Delete point to remove it.'}
+              </span>
+              {canDeleteVertex && (
+                <Button size="sm" variant="secondary" onClick={onDeleteEditVertex}>
+                  Delete point
+                </Button>
+              )}
+              <Button size="sm" variant="primary" onClick={onZoneEditDone}>
+                Done
+              </Button>
+            </div>
+          </div>
+        )
+      })()}
     </div>
   )
 }

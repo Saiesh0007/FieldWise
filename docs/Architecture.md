@@ -126,6 +126,7 @@ sequenceDiagram
 ```
 
 * **`useProjectAutosave.ts`:** Debounced (600 ms) hook that listens to store changes and persists a `ProjectSnapshot` to IndexedDB via `projectDb.ts`. Restores the active project on initial load without writing empty projects during idle visits.
+* **`originalBoundary` snapshot:** Alongside the live `boundary`, the store keeps a reference to it exactly as it was the moment it was first created/loaded (Import, "Load sample field", or opening a saved project) — never reassigned by a correction action, only by a fresh import. This is what lets the Simulate panel's Blind vs. Sighted replay compare the pilot's own before/after honestly instead of against a scripted scenario (see `lib/simulation/sessionScenario.ts` and Memory.md ADR-011).
 * **`projectDb.ts` & `project.ts`:** Pure record functions and asynchronous IndexedDB storage layer for project records (`id`, `name`, `createdAt`, `updatedAt`, `snapshot`).
 
 ### 3.3. Map & Tile Services (`src/lib/map/`)

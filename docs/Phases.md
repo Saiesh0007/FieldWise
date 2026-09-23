@@ -78,8 +78,17 @@ Phase 8: Advanced Autonomy & RTK ───────────────�
   * **In-Place Basemap Toggle:** Fast switching between satellite imagery and street map without tearing down vector layers (`basemap.ts`).
   * **Global Place Search:** Debounced Nominatim geocoder supporting search by name and "Use my current location" GPS centering (`geocoding.ts`, `LocationSearch.tsx`).
   * **Four Plot-Creation Methods:** RC/Mobile (GPS walk), Drone (click-to-place at each corner, or an auto-play "Simulate demo"), Map (satellite trace), and Import KML/GeoJSON, behind a 2×2 method selector on the Import panel (`ImportPanel.tsx`, `DronePointCapture.tsx`) — completing AeroGCS Green's four documented plot-creation methods.
+  * **Add Obstacle Tool (§12):** A standalone obstacle tool alongside plot creation, supporting **polygon** (freehand draw) and **circle** (center + radius, converted to a polygon via `circleObstacle.ts` and reusing the exact same no-spray-zone differencing) exclusion shapes (`ImportPanel.tsx`, `FieldMap.tsx`).
+  * **Edit Obstacle (§12.3):** Drag a polygon obstacle's vertex to reposition it; select and delete a vertex (3-vertex minimum enforced); drag a circle obstacle's edge to resize it, keeping it a true circle. Live preview during drag, one store commit on release (`FieldMap.tsx`, `useFieldStore.ts`'s `updateNoSprayZone`).
+  * **Session-Derived Blind vs. Sighted Replay:** The Simulate panel's replay now compares the pilot's own boundary as first imported (snapshotted once, before any correction) against their currently-corrected boundary — both scored against the current boundary as ground truth — instead of a fixed scripted scenario (`useFieldStore.ts`'s `originalBoundary`, `src/lib/simulation/sessionScenario.ts`). Reads "No corrections made yet" until a real correction has been made.
 
 > **Known incomplete work, not yet started:** a TCP↔WebSocket bridge to let FieldWise connect to Mission Planner's SITL simulator for hardware-free testing (browsers can't open raw TCP sockets, so this needs a small local relay process). The `ws`/`@types/ws` devDependencies were added in preparation for this, but no `TcpBridgeVehicle` class or bridge script exists yet — picking this up means starting from the dependency only, not from any working code.
+>
+> **Also not yet built (AeroGCS Green manual §10, §11, §13, §14):**
+> * **§10 Map Calibration** — nudging the map/GPS offset to correct a projection drift. A `calibrationOffset` field already exists on `FieldBoundary` but nothing reads or writes it yet.
+> * **§11 Manual Plan editing** — Adjust Waypoint (drag/nudge a generated waypoint), Adjust Spacing, Indentation (per-edge inward buffer), Obstacle Boundary spacing, Route Adjust (angle slider + Head Lock), Move Plan (translate the whole plan), Plan Splitting (split a mission by % for battery swaps, with Resume). `PlanPanel.tsx` today only configures a `DroneProfile` and picks a sweep-strategy kind — no per-waypoint or per-plan manual editing exists.
+> * **§13 Flyview** — a live in-flight HUD: arm/disarm bar, live spray-dosage calculation, range-finder obstacle detection, in-flight notifications feed. `SendPanel.tsx` has telemetry widgets (battery, altitude, heading, wind) but none of this.
+> * **§14 Reports** — View Report / Generate Field Report (post-mission report history). No reports feature exists anywhere in the app.
 
 ### Phase 7: In-Field Hardware Validation (Current Phase)
 * **Objective:** Execute live bench and outdoor validation using physical Pixhawk hardware and USB cables.

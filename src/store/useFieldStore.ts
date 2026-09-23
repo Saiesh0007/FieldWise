@@ -86,6 +86,8 @@ interface FieldState {
   setBoundary: (boundary: FieldBoundary | null) => void
   addNoSprayZone: (zone: NoSprayZone) => void
   removeNoSprayZone: (id: string) => void
+  /** Edit Obstacle (AeroGCS Green §12.3) — replaces one zone's geometry (a dragged polygon vertex, a resized circle, or a deleted vertex) by id. Never touches any other zone. */
+  updateNoSprayZone: (id: string, update: Partial<Pick<NoSprayZone, 'vertices' | 'center' | 'radiusM'>>) => void
   setDroneProfile: (profile: DroneProfile) => void
   setSweepStrategy: (strategy: SweepStrategy) => void
   setSelectedEdgeId: (edgeId: string | null) => void
@@ -207,6 +209,12 @@ export const useFieldStore = create<FieldState>((set) => ({
   removeNoSprayZone: (id) =>
     set((state) => {
       const noSprayZones = state.noSprayZones.filter((z) => z.id !== id)
+      return { noSprayZones, ...recompute({ ...state, noSprayZones }) }
+    }),
+
+  updateNoSprayZone: (id, update) =>
+    set((state) => {
+      const noSprayZones = state.noSprayZones.map((z) => (z.id === id ? { ...z, ...update } : z))
       return { noSprayZones, ...recompute({ ...state, noSprayZones }) }
     }),
 

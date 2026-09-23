@@ -78,9 +78,13 @@ export interface DroneProfile {
 export interface NoSprayZone {
   id: string
   label: string
-  vertices: LatLng[]
+  vertices: LatLng[]       // Always the authoritative polygon ring — differencing, planning, export, and map rendering never need to know the fields below.
+  shape?: 'polygon' | 'circle'  // Set by the Add/Edit Obstacle tool purely so the UI can label a circle with its radius and re-derive it when resizing.
+  center?: LatLng                // Present only when shape === 'circle'.
+  radiusM?: number                // Present only when shape === 'circle'.
 }
 ```
+A circle obstacle is converted to `vertices` once, at creation/edit time (`lib/geo/circleObstacle.ts`'s `circleToPolygon`, via turf's geodesic `circle()`) — see Memory.md ADR-010.
 
 ### 1.4. Flight Plan, Sorties & Passes
 ```typescript
@@ -129,6 +133,7 @@ export interface ReadinessSummary {
 ```typescript
 export interface ProjectSnapshot {
   boundary: FieldBoundary | null
+  originalBoundary?: FieldBoundary | null  // The pre-correction snapshot Simulate's Blind vs. Sighted replay compares against (see Memory.md ADR-011) — optional so records saved before this field existed still deserialize; falls back to the live boundary on load.
   noSprayZones: NoSprayZone[]
   droneProfile: DroneProfile
   sweepStrategy: SweepStrategy

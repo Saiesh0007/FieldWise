@@ -28,6 +28,7 @@ function App() {
   const setSelectedEdgeId = useFieldStore((s) => s.setSelectedEdgeId)
   const setBoundary = useFieldStore((s) => s.setBoundary)
   const addNoSprayZone = useFieldStore((s) => s.addNoSprayZone)
+  const updateNoSprayZone = useFieldStore((s) => s.updateNoSprayZone)
   const walkEdge = useFieldStore((s) => s.walkEdge)
   const setSweepStrategy = useFieldStore((s) => s.setSweepStrategy)
 
@@ -46,6 +47,11 @@ function App() {
   // Drone point-capture state — active while the user is in "Drone" plot-creation mode.
   const [droneCaptureActive, setDroneCaptureActive] = useState(false)
   const [dronePoints, setDronePoints] = useState<LatLng[]>([])
+
+  // Edit Obstacle (AeroGCS Green §12.3) — which no-spray zone is being
+  // edited, and which of its vertices (if any) is selected for deletion.
+  const [editingZoneId, setEditingZoneId] = useState<string | null>(null)
+  const [editingVertexIndex, setEditingVertexIndex] = useState<number | null>(null)
 
   // A fresh object every time (even for an identical place searched
   // twice), so FieldMap's effect — keyed on this whole object's
@@ -78,6 +84,29 @@ function App() {
       radiusM,
     })
     setDrawTarget(null)
+  }
+
+  const handleStartEditZone = (id: string) => {
+    setEditingZoneId(id)
+    setEditingVertexIndex(null)
+    setDrawTarget(null) // can't draw a new obstacle while editing an existing one
+  }
+
+  const handleZoneEditDone = () => {
+    setEditingZoneId(null)
+    setEditingVertexIndex(null)
+  }
+
+  const handleZoneEdit = (id: string, update: { vertices: LatLng[]; radiusM?: number }) => {
+    updateNoSprayZone(id, update)
+  }
+
+  const handleDeleteEditVertex = () => {
+    if (!editingZoneId || editingVertexIndex === null) return
+    const zone = noSprayZones.find((z) => z.id === editingZoneId)
+    if (!zone || zone.shape === 'circle' || zone.vertices.length <= 3) return
+    updateNoSprayZone(editingZoneId, { vertices: zone.vertices.filter((_, i) => i !== editingVertexIndex) })
+    setEditingVertexIndex(null)
   }
 
   const handleCorrectionFinish = (trace: LatLng[], accuracyM: number) => {
@@ -160,6 +189,11 @@ function App() {
                 onStartDroneCapture={handleStartDroneCapture}
                 onStopDroneCapture={handleStopDroneCapture}
                 onDroneCaptureComplete={handleDroneCaptureComplete}
+                editingZoneId={editingZoneId}
+                editingVertexIndex={editingVertexIndex}
+                onStartEditZone={handleStartEditZone}
+                onStopEditZone={handleZoneEditDone}
+                onDeleteEditVertex={handleDeleteEditVertex}
               />
             )}
             {currentStep === 'verify' && (
@@ -194,6 +228,12 @@ function App() {
             onDrawFinish={handleDrawFinish}
             onDrawCancel={() => setDrawTarget(null)}
             onCircleZoneFinish={handleCircleZoneFinish}
+            editingZoneId={editingZoneId}
+            editingVertexIndex={editingVertexIndex}
+            onZoneEdit={handleZoneEdit}
+            onEditVertexSelect={setEditingVertexIndex}
+            onDeleteEditVertex={handleDeleteEditVertex}
+            onZoneEditDone={handleZoneEditDone}
             liveWalkPath={liveWalkPath}
             droneCaptureActive={droneCaptureActive}
             onDroneCapturePoint={handleDroneCapturePoint}

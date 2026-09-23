@@ -32,6 +32,13 @@ interface ImportPanelProps {
   onStartDroneCapture: () => void
   onStopDroneCapture: () => void
   onDroneCaptureComplete: (vertices: LatLng[]) => void
+
+  // Edit Obstacle (AeroGCS Green §12.3)
+  editingZoneId: string | null
+  editingVertexIndex: number | null
+  onStartEditZone: (id: string) => void
+  onStopEditZone: () => void
+  onDeleteEditVertex: () => void
 }
 
 // ---------------------------------------------------------------------------
@@ -134,6 +141,11 @@ export function ImportPanel({
   onStartDroneCapture,
   onStopDroneCapture,
   onDroneCaptureComplete,
+  editingZoneId,
+  editingVertexIndex,
+  onStartEditZone,
+  onStopEditZone,
+  onDeleteEditVertex,
 }: ImportPanelProps) {
   const boundary = useFieldStore((s) => s.boundary)
   const noSprayZones = useFieldStore((s) => s.noSprayZones)
@@ -171,6 +183,9 @@ export function ImportPanel({
     }
     if (drawTarget) {
       onCancelDraw()
+    }
+    if (editingZoneId) {
+      onStopEditZone()
     }
     setFileError(null)
     setActiveMethod(method)
@@ -408,7 +423,7 @@ export function ImportPanel({
           <section className="space-y-2">
             <div className="flex items-center justify-between">
               <h3 className="text-xs font-semibold uppercase tracking-wide text-(--text-muted)">No-spray zones / obstacles</h3>
-              {drawTarget === 'zone' || drawTarget === 'circle-zone' ? (
+              {editingZoneId ? null : drawTarget === 'zone' || drawTarget === 'circle-zone' ? (
                 <Button size="sm" variant="ghost" onClick={onCancelDraw}>
                   Cancel
                 </Button>
@@ -454,30 +469,64 @@ export function ImportPanel({
                 Polygon: draw freehand on the map. Circle: click a center, then click again to set the radius.
               </p>
             )}
+            {editingZoneId && (
+              <p className="text-xs text-(--text-muted)">
+                {noSprayZones.find((z) => z.id === editingZoneId)?.shape === 'circle'
+                  ? "Drag the circle's edge point on the map to resize it."
+                  : 'Drag a point on the map to move it, or select one below to delete it.'}
+              </p>
+            )}
             {noSprayZones.length === 0 ? (
               <p className="text-xs text-(--text-muted)">None yet — obstacles, ponds, or exclusion lanes.</p>
             ) : (
               <ul className="space-y-1">
-                {noSprayZones.map((zone) => (
-                  <li
-                    key={zone.id}
-                    className="flex items-center justify-between rounded-(--radius-control) border border-(--border-subtle) px-2.5 py-1.5 text-sm"
-                  >
-                    <span>
-                      {zone.label}
-                      {zone.shape === 'circle' && zone.radiusM != null && (
-                        <span className="text-(--text-muted)"> · circle, r={zone.radiusM.toFixed(0)}m</span>
+                {noSprayZones.map((zone) => {
+                  const isEditing = editingZoneId === zone.id
+                  const canDeleteVertex = isEditing && zone.shape !== 'circle' && editingVertexIndex !== null && zone.vertices.length > 3
+                  return (
+                    <li key={zone.id} className="rounded-(--radius-control) border border-(--border-subtle) px-2.5 py-1.5 text-sm">
+                      <div className="flex items-center justify-between">
+                        <span>
+                          {zone.label}
+                          {zone.shape === 'circle' && zone.radiusM != null && (
+                            <span className="text-(--text-muted)"> · circle, r={zone.radiusM.toFixed(0)}m</span>
+                          )}
+                        </span>
+                        <div className="flex items-center gap-2">
+                          {isEditing ? (
+                            <button type="button" className="text-xs text-brand-600 hover:underline" onClick={onStopEditZone}>
+                              Done
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              className="text-xs text-brand-600 hover:underline disabled:pointer-events-none disabled:text-(--text-muted)"
+                              disabled={drawTarget !== null || droneCaptureActive || (editingZoneId !== null && !isEditing)}
+                              onClick={() => onStartEditZone(zone.id)}
+                            >
+                              Edit
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            className="text-xs text-danger hover:underline disabled:pointer-events-none disabled:text-(--text-muted)"
+                            disabled={isEditing}
+                            onClick={() => removeNoSprayZone(zone.id)}
+                          >
+                            Remove
+                          </button>
+                        </div>
+                      </div>
+                      {canDeleteVertex && (
+                        <div className="mt-1.5 flex justify-end">
+                          <Button size="sm" variant="secondary" onClick={onDeleteEditVertex}>
+                            Delete point
+                          </Button>
+                        </div>
                       )}
-                    </span>
-                    <button
-                      type="button"
-                      className="text-xs text-danger hover:underline"
-                      onClick={() => removeNoSprayZone(zone.id)}
-                    >
-                      Remove
-                    </button>
-                  </li>
-                ))}
+                    </li>
+                  )
+                })}
               </ul>
             )}
           </section>

@@ -31,6 +31,7 @@ FieldWise fundamentally alters this paradigm:
 | Feature | Description | Technical Implementation |
 | :--- | :--- | :--- |
 | **Boundary Ingestion** | Four plot-creation methods (AeroGCS Green parity): RC/Mobile GPS walk, Drone point capture, trace on the satellite map, or import GeoJSON/KML. | `ImportPanel.tsx`, `DronePointCapture.tsx`, `src/lib/geo/importFormats.ts`, `boundary.ts` |
+| **Obstacle Tool (Add / Edit / Delete)** | A standalone "Add Obstacle" tool (AeroGCS Green §12) supporting polygon (freehand) and circle (center + radius) exclusion zones, reusing the same no-spray-zone differencing as any other zone. Edit Obstacle lets the pilot drag a polygon vertex to reposition it, select and delete a vertex (3-vertex minimum), or drag a circle's edge to resize it — all live on the map, committed to the store on release. | `ImportPanel.tsx`, `FieldMap.tsx`, `src/lib/geo/circleObstacle.ts` |
 | **Global Location Search** | Finds any field worldwide via Nominatim geocoding or browser "use my current location" GPS. | `src/lib/map/geocoding.ts`, `LocationSearch.tsx` |
 | **Edge Provenance Tracking** | Deconstructs polygons into discrete edges tagged with provenance: `satellite`, `walked`, or `confirmed`, with `acceptedRisk` flags. | `src/lib/geo/types.ts`, `src/lib/geo/boundary.ts` |
 | **Delta Correction Engine** | Splices walked GPS traces or trimmed curves into polygon edges, simplifying to accuracy radius and enforcing plausibility bounds. | `src/lib/geo/delta.ts`, `@turf/turf`, `polygon-clipping` |
@@ -40,7 +41,7 @@ FieldWise fundamentally alters this paradigm:
 | **Projects System & Autosave** | Local-first project management (create, rename, delete, recency sort) with debounced IndexedDB persistence. | `src/lib/storage/project.ts`, `projectDb.ts`, `useProjectAutosave.ts` |
 | **Resilient Map & Tile Cache** | Custom `fwsat://` protocol with Cache API storage, Esri placeholder detection, and automatic OpenStreetMap fallback. | `src/lib/map/resilientSatelliteTiles.ts`, `basemap.ts` |
 | **Base Map View Toggle** | Instant in-place toggle between satellite imagery and OpenStreetMap street view without tearing down layers. | `src/lib/map/basemap.ts`, `FieldMap.tsx` |
-| **Replay & Scenario Simulator** | Live dual-simulation visualizer comparing "Blind Flight" (unverified prior) vs "Sighted Flight" (corrected ground truth). | `src/lib/simulation/replay.ts`, `blindVsSightedScenario.ts` |
+| **Replay & Scenario Simulator** | Live dual-simulation visualizer comparing "Blind" (the pilot's own boundary as first imported) vs "Sighted" (the pilot's own boundary as currently corrected) — derived from the actual session, not a scripted scenario; scored against the current boundary as ground truth. | `src/lib/simulation/replay.ts`, `sessionScenario.ts` |
 | **Multi-Format Mission Export** | Exports missions to QGroundControl (`.plan`), Mission Planner (`.waypoints`), KML, GeoJSON, CSV, and printable handoff sheets. | `src/lib/export/*` |
 | **Direct Hardware Link** | Micro-USB MAVLink 2.0 communication engine communicating directly with Pixhawk autopilots via Web Serial. | `src/lib/vehicle/mavlink/*`, `webSerialVehicle.ts` |
 | **Live Telemetry & Dashboard** | Displays GPS fix, satellites, HDOP, roll/pitch attitude dial, heading compass, battery V/%, altitude AGL, wind speed/direction, and drone center. | `src/components/panels/SendPanel.tsx`, `FieldMap.tsx` |
@@ -58,7 +59,7 @@ The application guides the operator through an intuitive 6-stage lifecycle repre
 1. **Import:**
    - Search for a field location worldwide with geocoding, use current GPS location, or load the sample field fixture.
    - Choose one of four plot-creation methods via a 2×2 selector, matching AeroGCS Green's dashboard: **RC/Mobile** (walk the perimeter with live GPS), **Drone** (click the map at each corner — simulating the drone's GPS position — or run an auto-play demo), **Map** (trace the boundary on the satellite view), or **Import KML/GeoJSON** (upload a file from any GIS tool).
-   - Define exclusion zones (waterways, power lines, houses) as No-Spray obstacle buffers.
+   - Define exclusion zones (waterways, power lines, houses, ponds) with the **Add Obstacle** tool: draw a freehand **polygon**, or place a **circle** by center + radius. **Edit** an existing obstacle to drag a polygon vertex, delete a selected vertex, or resize a circle by dragging its edge.
 2. **Verify (The Core Innovation):**
    - Inspect every polygon boundary edge individually with color-coded provenance (Amber = Satellite Prior, Green = Pilot Walked, Blue = Accepted Risk).
    - "Walk a Strip" or "Trim an Edge" via interactive map drag, real GPS walk, or the mobile walk simulator.
@@ -69,7 +70,7 @@ The application guides the operator through an intuitive 6-stage lifecycle repre
    - Real-time display of total passes, flight distance, chemical volume, flight duration, and sortie counts.
 4. **Simulate:**
    - Interactive replay showing the spray drone traversing passes.
-   - Comparative playback demonstrating overspray/hazard collisions in uncorrected flights versus zero-incident corrected flights.
+   - Comparative playback of "Blind" (the boundary exactly as first imported, snapshotted the moment it was created) versus "Sighted" (the boundary as currently corrected), both scored against the pilot's current boundary as ground truth — a genuine before/after from the pilot's own session, not a scripted example. Reads "No corrections made yet" until at least one edge has actually been walked, trimmed, or risk-accepted.
 5. **Export:**
    - Generate standard autopilot files (`.plan` for QGroundControl, `.waypoints` for Mission Planner).
    - Export GIS layers (GeoJSON, KML) and printable pilot-signoff handoff briefing sheets.
@@ -88,7 +89,7 @@ The application guides the operator through an intuitive 6-stage lifecycle repre
 * **Geospatial Math & GIS:** `proj4` (Local Azimuthal Equidistant `aeqd`), `@turf/turf`, `polygon-clipping`.
 * **State Management & Storage:** Zustand 5.0 with synchronous atomic `recompute()` pipeline, IndexedDB (`fieldwise-projects`), Cache API (`fieldwise-satellite-tiles-v1`).
 * **Hardware & Protocols:** Web Serial API (`navigator.serial`), custom TypeScript MAVLink 1.0/2.0 codec with 14 supported message definitions.
-* **Code Quality & Testing:** Vitest (23 suites, 179 tests passing), Oxlint.
+* **Code Quality & Testing:** Vitest (25 suites, 190 tests passing), Oxlint.
 
 ---
 
@@ -134,12 +135,12 @@ FieldWise/
 │   │   ├── export/                   # Multi-format mission & GIS exporters (+ unit tests)
 │   │   │   ├── csv.ts, geojson.ts, kml.ts, qgcPlan.ts, missionPlannerWaypoints.ts, handoffSheet.ts
 │   │   ├── geo/                      # Projection, planner, delta math, readiness (+ unit tests)
-│   │   │   ├── boundary.ts, defaults.ts, delta.ts, droneProfile.ts, math.ts, noSprayZones.ts,
-│   │   │   ├── planner.ts, projection.ts, readiness.ts, sampleField.ts, types.ts
+│   │   │   ├── boundary.ts, circleObstacle.ts, defaults.ts, delta.ts, droneProfile.ts, importFormats.ts,
+│   │   │   ├── math.ts, noSprayZones.ts, planner.ts, projection.ts, readiness.ts, sampleField.ts, types.ts
 │   │   ├── map/                      # Tile caching, geocoding, basemap toggle, GeoJSON converters
 │   │   │   ├── basemap.ts, geocoding.ts, resilientSatelliteTiles.ts, tileUrl.ts, provenanceColors.ts
-│   │   ├── simulation/               # Replay simulator, blind vs sighted engine (+ unit tests)
-│   │   │   ├── replay.ts, blindVsSightedScenario.ts
+│   │   ├── simulation/               # Replay scoring engine + session-derived Blind vs. Sighted input selection (+ unit tests)
+│   │   │   ├── replay.ts, sessionScenario.ts
 │   │   ├── storage/                  # IndexedDB persistence and ProjectRecord operations (+ unit tests)
 │   │   │   ├── project.ts, projectDb.ts
 │   │   └── vehicle/                  # Web Serial & MAVLink communication stack (+ unit tests)

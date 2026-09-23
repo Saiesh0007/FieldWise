@@ -112,6 +112,39 @@ This document captures historical context, Architectural Decision Records (ADRs)
 
 ---
 
+### ADR-010: Circle Obstacles as Polygons, Not a Parallel Shape System
+* **Date:** 2026-09-23
+* **Status:** Accepted & Implemented
+* **Context:** AeroGCS Green's Obstacle tool (§12) supports both polygon and circle exclusion shapes. `NoSprayZone` and every downstream consumer (`subtractNoSprayZones`, the planner, exports, map rendering) only ever understood a polygon ring.
+* **Decision:** Convert a circle (center + radius) to a closed polygon ring once, at creation/edit time (`lib/geo/circleObstacle.ts`'s `circleToPolygon`, via turf's geodesic `circle()`), and store it as an ordinary `NoSprayZone` with `vertices` as the authoritative geometry. Optional `shape`/`center`/`radiusM` fields ride along purely for the UI ("circle, r=12m") and for Edit Obstacle to re-derive the radius — no other code needs to know a zone was drawn as a circle.
+* **Consequences:**
+  * *Pros:* Zero changes needed to differencing, planning, export, or map rendering — a circle obstacle is just a `NoSprayZone` everywhere except the two places that care it's a circle (the list label and Edit Obstacle's resize handle).
+  * *Cons:* A circle's polygon approximation (32 segments) is a hair smaller in area than a true circle — negligible in practice, verified in `circleObstacle.test.ts`.
+
+---
+
+### ADR-011: Session-Derived Blind vs. Sighted Replay
+* **Date:** 2026-09-23
+* **Status:** Accepted & Implemented
+* **Context:** The Simulate panel originally ran a fixed, scripted scenario (a hardcoded 200m×100m rectangle) rather than replaying the pilot's own session, because `applyWalkedEdgeCorrection` (ADR-008) had nothing keeping the pre-correction boundary once a walk/trim was applied — see the now-superseded rationale that used to live in `blindVsSightedScenario.ts`.
+* **Decision:** `useFieldStore` snapshots `originalBoundary` once, whenever a boundary is first created/loaded (Import, "Load sample field", or opening a saved project) — the *same object reference* the live `boundary` starts as. Every correction action (`walkEdge`, `acceptRisk`, `revokeRisk`) only ever reassigns `boundary` to a brand-new object (per ADR-008/`delta.ts`'s "never mutate in place" contract), so `originalBoundary` stays exactly what it was at import time for the session's lifetime, with no special-casing needed to keep it untouched. Persisted in `ProjectSnapshot` too (optional field, falls back to the live boundary for older saved records). `lib/simulation/sessionScenario.ts` holds the pure input-selection logic: `boundaryHasCorrections` (vertex OR provenance divergence) and `runSessionBlindVsSighted` (Blind = plan from `originalBoundary`, Sighted = plan from current `boundary`, both scored against current `boundary` as ground truth). `simulateSprayReplay` (the scoring engine) is untouched — only its inputs changed.
+* **Consequences:**
+  * *Pros:* An honest, real before/after instead of a scripted stand-in; the empty states ("No field loaded yet" / "No corrections made yet") are simple reference-vs-content checks, not special demo-mode logic.
+  * *Cons:* `originalBoundary` doubles the boundary data kept in memory/IndexedDB per session — negligible at field-boundary vertex counts.
+
+---
+
+### ADR-012: Edit Obstacle — Live Local Preview, One Store Commit on Release
+* **Date:** 2026-09-23
+* **Status:** Accepted & Implemented
+* **Context:** AeroGCS Green's Edit Obstacle (§12.3) lets a pilot drag a polygon obstacle's vertex, delete a vertex, or resize a circle by dragging its edge. Every store mutation runs the full `recompute()` pipeline (projection + planner + readiness), so committing on every `mousemove` pixel during a drag would re-plan far more often than needed.
+* **Decision:** Mirror the existing pilot-marker-drag pattern (Field-Truth Walk correction): track the in-progress vertex position as local React state in `FieldMap.tsx` (`liveEditVertices`), rendering a live preview of the edited zone's fill/outline/handles from it, and commit to the store (`updateNoSprayZone`) only once, on `mouseup`. A circle's single edge-handle recomputes the whole ring via `circleToPolygon` on every drag frame (locally) so it stays a true circle rather than deforming into an arbitrary polygon.
+* **Consequences:**
+  * *Pros:* Smooth 60fps drag feedback with only one re-plan per gesture, consistent with the app's existing correction-drag pattern rather than inventing a new one.
+  * *Cons:* `liveEditVertices` must be explicitly cleared after each commit (`stopDraggingZoneVertex`) — a first pass missed this and left a stale post-drag snapshot shadowing the store's fresh data for any *subsequent* action (e.g. deleting a different vertex silently no-op'd because the handles were still reading the old array). Caught by a real-browser drag-then-delete pass, not by any unit test, since it's pure React state-lifecycle behavior local to the component.
+
+---
+
 ## 2. Hardware Gotchas & Field Notes
 
 ### Pixhawk 2.4.8 USB Communication
@@ -140,11 +173,13 @@ This document captures historical context, Architectural Decision Records (ADRs)
 
 * **Command:** `npm test`
 * **Test Runner:** Vitest v5.0
-* **Status:** 23 test files, 179 tests passing (100% success rate).
+* **Status:** 25 test files, 190 tests passing (100% success rate).
 * **Key Test Suites:**
   * `project.test.ts`: Validation of project record creation, recency sorting, and snapshot serialization.
   * `scenario.test.ts`: End-to-end integration test of an L-shaped field with pond exclusion, verifying sorties, passes, volumes, and readiness gating.
   * `delta.test.ts`: 17 tests validating point decimation, edge snapping, self-intersection rejection, plausibility thresholds, and provenance updates.
+  * `circleObstacle.test.ts`: Circle-to-polygon conversion accuracy (radius, area) and its differencing against a boundary (fully-interior hole, edge-straddling clip) — see ADR-010.
+  * `sessionScenario.test.ts`: `boundaryHasCorrections` (vertex and provenance divergence) and `runSessionBlindVsSighted`'s input selection — see ADR-011.
   * `mavlinkSession.test.ts`: Mocked serial loopback testing the MAVLink mission upload handshake and readback verification.
   * `codec.test.ts` & `crc.test.ts`: Validation of MAVLink 2.0 frame packing, CRC-16-CCITT calculations, and `CRC_EXTRA` seeds across all 14 messages.
   * `geocoding.test.ts` & `tileUrl.test.ts`: Tests for Nominatim response parsing and resilient tile URL generation.
