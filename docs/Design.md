@@ -47,7 +47,7 @@ export interface BoundaryEdge {
   provenance: EdgeProvenance
 }
 
-export type BoundarySource = 'satellite-trace' | 'gps-walk' | 'kml-import' | 'geojson-import'
+export type BoundarySource = 'satellite-trace' | 'gps-walk' | 'drone-walk' | 'kml-import' | 'geojson-import'
 
 export interface FieldBoundary {
   id: string
@@ -59,6 +59,7 @@ export interface FieldBoundary {
   calibrationOffset?: { dLon: number; dLat: number }
 }
 ```
+`boundary.ts`'s `defaultProvenanceFor()` treats `gps-walk` and `drone-walk` identically — both are ground-truth acts (points captured at a known real-world location), so their edges start `'walked'`, not `'satellite'`. `satellite-trace`, `kml-import`, and `geojson-import` all start `'satellite'` regardless of which tool produced the file, since none of them represent a physically-verified position.
 
 ### 1.3. Drone Profiles & No-Spray Zones
 ```typescript
@@ -238,7 +239,7 @@ If unverified edges exist, `cleared` is `false` and `blockingEdgeIds` lists all 
 | 46 | `MISSION_ITEM_REACHED` | 2 | 11 | Receive | Autopilot progress notification during autonomous execution |
 | 47 | `MISSION_ACK` | 8 | 153 | Bidirectional | Final acknowledgment confirming mission transaction result (`0 = ACCEPTED`) |
 | 51 | `MISSION_REQUEST_INT` | 5 | 196 | Receive | Requests specific waypoint sequence $i$ using integer micro-degrees |
-| 73 | `MISSION_ITEM_INT` | 38 | 38 | Bidirectional | Waypoint coordinates ($10^7$), altitude, commands (`NAV_WAYPOINT`, `DO_SET_SERVO`) |
+| 73 | `MISSION_ITEM_INT` | 38 | 38 | Bidirectional | Waypoint coordinates ($10^7$), altitude — every leg is a plain `MAV_CMD_NAV_WAYPOINT` (16); **no `DO_SET_SERVO`/actuator command is sent** — uploads are coverage geometry only, not sprayer on/off control (a deliberate, documented scope cut, not an oversight — see `missionFromPlan.ts`'s header comment) |
 | 74 | `VFR_HUD` | 20 | 20 | Receive | Decodes airspeed, groundspeed, barometric altitude, and compass heading |
 | 168 | `WIND` | 12 | 1 | Receive | Decodes ArduPilot-estimated wind direction and horizontal speed |
 
@@ -260,6 +261,7 @@ When `HEARTBEAT.baseMode` includes `MAV_MODE_FLAG_CUSTOM_MODE_ENABLED` (bit 0), 
   - Field boundary with provenance-colored edges (Amber, Green, Blue).
   - Exclusion zones with crosshatch fills.
   - Directional swath lines with sortie color coding.
-  - Live drone telemetry marker with heading cone.
+  - Drone point-capture crosshair mode with a top banner, for the "Drone" plot-creation method — each click emits one boundary point at the clicked coordinate.
+  - `flyTo` camera control shared by both "Search a location" and Send to Vehicle's "Center map on drone" button — recenters the map on a coordinate; not a persistent live marker.
 * **`PhoneFrameOverlay.tsx`:** Interactive desktop testing frame providing simulated GPS walk breadcrumb capture with realistic randomized noise circles.
 * **`SendPanel.tsx`:** Live hardware connection hub featuring Web Serial port selector, connection state machine, artificial horizon attitude dial, heading compass, and live battery, altitude, wind, and GPS stat cards.

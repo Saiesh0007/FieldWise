@@ -55,7 +55,7 @@ Phase 8: Advanced Autonomy & RTK ───────────────�
 * **Key Deliverables:**
   * Fail-closed readiness calculation engine (`src/lib/geo/readiness.ts`).
   * Real-time visual readiness status badge (`ReadinessBadge.tsx`).
-  * QGroundControl `.plan` generator with auto-inserted spray nozzle actuator commands (`qgcPlan.ts`).
+  * QGroundControl `.plan` generator with coverage-geometry waypoints (`qgcPlan.ts`) — deliberately no sprayer actuator command; see Design.md §3.3.
   * ArduPilot Mission Planner `QGC WPL 110` `.waypoints` exporter (`missionPlannerWaypoints.ts`).
   * Standard GIS file exporters: GeoJSON (`geojson.ts`), KML with color-coded styles (`kml.ts`), and CSV tabular coordinates (`csv.ts`).
   * Standalone printable Pilot Handoff Briefing Sheet (`handoffSheet.ts`) with embedded verification sign-off certificate.
@@ -77,6 +77,9 @@ Phase 8: Advanced Autonomy & RTK ───────────────�
   * **Resilient Satellite Protocol (`fwsat://`):** Custom MapLibre protocol with browser Cache API session persistence, byte-size placeholder detection, and automatic OpenStreetMap raster tile fallback (`resilientSatelliteTiles.ts`).
   * **In-Place Basemap Toggle:** Fast switching between satellite imagery and street map without tearing down vector layers (`basemap.ts`).
   * **Global Place Search:** Debounced Nominatim geocoder supporting search by name and "Use my current location" GPS centering (`geocoding.ts`, `LocationSearch.tsx`).
+  * **Four Plot-Creation Methods:** RC/Mobile (GPS walk), Drone (click-to-place at each corner, or an auto-play "Simulate demo"), Map (satellite trace), and Import KML/GeoJSON, behind a 2×2 method selector on the Import panel (`ImportPanel.tsx`, `DronePointCapture.tsx`) — completing AeroGCS Green's four documented plot-creation methods.
+
+> **Known incomplete work, not yet started:** a TCP↔WebSocket bridge to let FieldWise connect to Mission Planner's SITL simulator for hardware-free testing (browsers can't open raw TCP sockets, so this needs a small local relay process). The `ws`/`@types/ws` devDependencies were added in preparation for this, but no `TcpBridgeVehicle` class or bridge script exists yet — picking this up means starting from the dependency only, not from any working code.
 
 ### Phase 7: In-Field Hardware Validation (Current Phase)
 * **Objective:** Execute live bench and outdoor validation using physical Pixhawk hardware and USB cables.

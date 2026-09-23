@@ -150,7 +150,7 @@ sequenceDiagram
 * **Mission Protocol Handshake:** Lockstep upload sequence (`MISSION_COUNT` ➔ `MISSION_REQUEST_INT` ➔ `MISSION_ITEM_INT` ➔ `MISSION_ACK`) followed by immediate byte-by-byte readback verification (`MISSION_REQUEST_LIST`).
 
 ### 3.5. Export & Interoperability Layer (`src/lib/export/`)
-* **QGC Plan (`qgcPlan.ts`):** Produces QGroundControl `.plan` JSON with takeoff, waypoints, automated servo spray triggers (`MAV_CMD_DO_SET_SERVO`), and return-to-launch.
+* **QGC Plan (`qgcPlan.ts`):** Produces QGroundControl `.plan` JSON with takeoff, waypoints (every leg a plain `MAV_CMD_NAV_WAYPOINT`), and return-to-launch. Coverage geometry only — no sprayer actuator command (`DO_SET_SERVO`) is emitted; that's a deliberate, documented scope cut, not a gap in this exporter specifically.
 * **Mission Planner (`missionPlannerWaypoints.ts`):** Formats standard tabular `QGC WPL 110` text files for ArduPilot Mission Planner.
 * **GIS Formats (`geojson.ts`, `kml.ts`, `csv.ts`):** Exports field geometries, exclusion buffers, and flight tracks with styled placemarks.
 * **Pilot Handoff Briefing (`handoffSheet.ts`):** Printable briefing document with verification sign-off certificate, chemical load requirements, and sortie schedule.

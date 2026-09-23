@@ -100,6 +100,18 @@ This document captures historical context, Architectural Decision Records (ADRs)
 
 ---
 
+### ADR-009: Drone Plot-Creation Method (4th AeroGCS Green Method)
+* **Date:** 2026-09-23
+* **Status:** Accepted & Implemented
+* **Context:** AeroGCS Green documents four plot-creation methods (RC/Mobile, Drone, Map, Import KML); FieldWise had the other three but not Drone. A real implementation would use the drone's own live GPS feed to mark each corner as it flies there — not available in a browser demo with no connected aircraft during plot creation.
+* **Decision:** Simulate "the drone's current position" as wherever the pilot clicks the map (crosshair cursor + a top banner naming the mode), plus a "Simulate demo" auto-play that walks the sample field's own vertices on a timer, so the method is demoable without hardware. Drone-captured points are ground truth (the pilot/drone was physically at that location when it was marked) — `createBoundary(vertices, 'drone-walk')` gives those edges `'walked'` provenance, the same trust level GPS walk already gets, not `'satellite'`.
+* **Consequences:**
+  * *Pros:* Completes AeroGCS Green's plot-creation parity; reuses the existing `liveWalkPath` map-visualization and `'walked'`-provenance readiness-gate machinery unchanged, rather than inventing a parallel path for one more input method.
+  * *Cons:* "Drone" mode is presently indistinguishable from "click on the map" mode from a data-integrity standpoint — nothing about a captured point proves a real drone was ever involved. A real implementation streaming live GPS from a connected aircraft during plot creation is future work, not built here.
+* **Provenance note:** The Import-panel restructuring (2×2 method selector) and this feature's first draft were authored by Antigravity (a different agentic coding tool) in a session outside this one. Reviewing it turned up three real bugs — a `tsc -b`-breaking unused required prop, a React-StrictMode-unsafe nested `setState` call, and UI copy describing a button that doesn't exist in the actual implementation — all fixed and verified with a real headless-browser pass before this ADR was written. Recorded here so a future session doesn't assume external-tool output is correct by default; it wasn't, until checked.
+
+---
+
 ## 2. Hardware Gotchas & Field Notes
 
 ### Pixhawk 2.4.8 USB Communication

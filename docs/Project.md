@@ -30,7 +30,7 @@ FieldWise fundamentally alters this paradigm:
 
 | Feature | Description | Technical Implementation |
 | :--- | :--- | :--- |
-| **Boundary Ingestion** | Imports standard boundary formats (GeoJSON, KML), draws on map, or captures GPS walk traces. | `src/lib/geo/importFormats.ts`, `boundary.ts` |
+| **Boundary Ingestion** | Four plot-creation methods (AeroGCS Green parity): RC/Mobile GPS walk, Drone point capture, trace on the satellite map, or import GeoJSON/KML. | `ImportPanel.tsx`, `DronePointCapture.tsx`, `src/lib/geo/importFormats.ts`, `boundary.ts` |
 | **Global Location Search** | Finds any field worldwide via Nominatim geocoding or browser "use my current location" GPS. | `src/lib/map/geocoding.ts`, `LocationSearch.tsx` |
 | **Edge Provenance Tracking** | Deconstructs polygons into discrete edges tagged with provenance: `satellite`, `walked`, or `confirmed`, with `acceptedRisk` flags. | `src/lib/geo/types.ts`, `src/lib/geo/boundary.ts` |
 | **Delta Correction Engine** | Splices walked GPS traces or trimmed curves into polygon edges, simplifying to accuracy radius and enforcing plausibility bounds. | `src/lib/geo/delta.ts`, `@turf/turf`, `polygon-clipping` |
@@ -57,7 +57,7 @@ The application guides the operator through an intuitive 6-stage lifecycle repre
 
 1. **Import:**
    - Search for a field location worldwide with geocoding, use current GPS location, or load the sample field fixture.
-   - Upload boundary files (GeoJSON/KML), trace boundaries on the map, or walk the perimeter with live GPS.
+   - Choose one of four plot-creation methods via a 2×2 selector, matching AeroGCS Green's dashboard: **RC/Mobile** (walk the perimeter with live GPS), **Drone** (click the map at each corner — simulating the drone's GPS position — or run an auto-play demo), **Map** (trace the boundary on the satellite view), or **Import KML/GeoJSON** (upload a file from any GIS tool).
    - Define exclusion zones (waterways, power lines, houses) as No-Spray obstacle buffers.
 2. **Verify (The Core Innovation):**
    - Inspect every polygon boundary edge individually with color-coded provenance (Amber = Satellite Prior, Green = Pilot Walked, Blue = Accepted Risk).
@@ -116,9 +116,10 @@ FieldWise/
 │   │   │   └── PhoneFrameOverlay.tsx
 │   │   ├── panels/                   # Panels per workflow step + project management
 │   │   │   ├── DroneProfilePicker.tsx
+│   │   │   ├── DronePointCapture.tsx  # "Drone" plot-creation method (click-to-place + auto-play demo)
 │   │   │   ├── ExportPanel.tsx
 │   │   │   ├── GpsWalkCapture.tsx
-│   │   │   ├── ImportPanel.tsx
+│   │   │   ├── ImportPanel.tsx        # 2x2 plot-creation method selector: RC/Mobile, Drone, Map, Import KML
 │   │   │   ├── LocationSearch.tsx
 │   │   │   ├── PlanPanel.tsx
 │   │   │   ├── ProjectsPanel.tsx
@@ -127,6 +128,7 @@ FieldWise/
 │   │   │   └── VerifyPanel.tsx
 │   │   └── ui/                       # Reusable primitives (Button, NumberField, Badges, StatCard, Spinner)
 │   ├── hooks/                        # React hooks
+│   │   ├── useDroneSimulation.ts     # Drone method's "Simulate demo" auto-play timer
 │   │   └── useProjectAutosave.ts     # Debounced project autosave to IndexedDB
 │   ├── lib/                          # Pure business and domain logic
 │   │   ├── export/                   # Multi-format mission & GIS exporters (+ unit tests)
