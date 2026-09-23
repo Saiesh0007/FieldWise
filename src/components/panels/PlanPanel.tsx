@@ -30,9 +30,9 @@ export function PlanPanel({ cropRowTapActive, onStartCropRowTap, onCancelCropRow
   const movePlan = useFieldStore((s) => s.movePlan)
   const resetPlanOffset = useFieldStore((s) => s.resetPlanOffset)
   const planSplitPercent = useFieldStore((s) => s.planSplitPercent)
-  const planSplitFromEnd = useFieldStore((s) => s.planSplitFromEnd)
+  const planSplitDirection = useFieldStore((s) => s.planSplitDirection)
   const setPlanSplitPercent = useFieldStore((s) => s.setPlanSplitPercent)
-  const setPlanSplitFromEnd = useFieldStore((s) => s.setPlanSplitFromEnd)
+  const setPlanSplitDirection = useFieldStore((s) => s.setPlanSplitDirection)
   const resetPlanSplit = useFieldStore((s) => s.resetPlanSplit)
   const setStep = useFieldStore((s) => s.setStep)
   const lastRecomputeMs = useFieldStore((s) => s.lastRecomputeMs)
@@ -57,7 +57,7 @@ export function PlanPanel({ cropRowTapActive, onStartCropRowTap, onCancelCropRow
   const isFixedOrCropRow = sweepStrategy.kind === 'fixed-heading' || sweepStrategy.kind === 'crop-row'
   const startPoint = sprayPlan ? planStartPoint(sprayPlan) : null
   const finishPoint = sprayPlan ? planFinishPoint(sprayPlan) : null
-  const split = sprayPlan ? splitPlanPasses(sprayPlan, planSplitPercent, planSplitFromEnd) : null
+  const split = sprayPlan ? splitPlanPasses(sprayPlan, planSplitPercent, planSplitDirection) : null
   const splitStats = { includedCount: split?.included.length ?? 0, totalCount: (split?.included.length ?? 0) + (split?.excluded.length ?? 0) }
 
   return (
@@ -244,16 +244,16 @@ export function PlanPanel({ cropRowTapActive, onStartCropRowTap, onCancelCropRow
           )}
         </div>
         <p className="text-xs text-(--text-secondary)">
-          Fly only part of the route this battery, deferring the rest to a later sortie — the excluded portion draws
-          in blue on the map.
+          Fly only part of the route this battery, deferring the rest to a later sortie — the intended route draws
+          in yellow on the map, the deferred portion in blue.
         </p>
         <div className="flex gap-2">
           <label className="flex flex-1 cursor-pointer items-center gap-1.5 text-xs text-(--text-primary)">
             <input
               type="radio"
               className="h-3.5 w-3.5 accent-brand-600"
-              checked={!planSplitFromEnd}
-              onChange={() => setPlanSplitFromEnd(false)}
+              checked={planSplitDirection === 'from-start'}
+              onChange={() => setPlanSplitDirection('from-start')}
             />
             From start
           </label>
@@ -261,10 +261,19 @@ export function PlanPanel({ cropRowTapActive, onStartCropRowTap, onCancelCropRow
             <input
               type="radio"
               className="h-3.5 w-3.5 accent-brand-600"
-              checked={planSplitFromEnd}
-              onChange={() => setPlanSplitFromEnd(true)}
+              checked={planSplitDirection === 'from-end'}
+              onChange={() => setPlanSplitDirection('from-end')}
             />
             From end
+          </label>
+          <label className="flex flex-1 cursor-pointer items-center gap-1.5 text-xs text-(--text-primary)">
+            <input
+              type="radio"
+              className="h-3.5 w-3.5 accent-brand-600"
+              checked={planSplitDirection === 'from-both'}
+              onChange={() => setPlanSplitDirection('from-both')}
+            />
+            Both sides
           </label>
         </div>
         <div className="flex items-center gap-2">
@@ -292,9 +301,8 @@ export function PlanPanel({ cropRowTapActive, onStartCropRowTap, onCancelCropRow
           <section className="space-y-1">
             <h3 className="text-xs font-semibold uppercase tracking-wide text-(--text-muted)">Start &amp; finish</h3>
             <p className="text-xs text-(--text-secondary)">
-              <span className="inline-block h-2 w-2 rounded-full bg-[#16a34a]" /> Start — where the flight path
-              begins. <span className="inline-block h-2 w-2 rounded-full bg-[#dc2626]" /> Finish — where it ends and
-              the mission is complete. Both are marked on the map.
+              Both marked in green on the map — <span className="font-semibold">S</span> where the flight path
+              begins, <span className="font-semibold">F</span> where it ends and the mission is complete.
             </p>
           </section>
         </>

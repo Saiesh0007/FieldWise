@@ -188,22 +188,46 @@ export interface PlanSplit {
   excluded: SprayPass[]
 }
 
+/** Which end(s) of the route `percent`% is measured from — AeroGCS Green offers all three. */
+export type PlanSplitDirection = 'from-start' | 'from-end' | 'from-both'
+
 /**
  * "Plan Splitting" (AeroGCS Green §11.8) — lets a pilot manually mark
- * the first (or last) `percent`% of the plan's passes, by pass count
- * in flight order across every sortie, as the portion to actually fly
- * this battery, deferring the rest. Purely a display/upload-subset
- * split on an already-generated plan — it doesn't recompute sorties,
- * tank volumes, or timing, since a partial flight's own battery/tank
- * accounting is a separate concern from "which passes."
+ * `percent`% of the plan's passes, by pass count in flight order across
+ * every sortie, as the portion to actually fly this battery, deferring
+ * the rest. Purely a display/upload-subset split on an already-
+ * generated plan — it doesn't recompute sorties, tank volumes, or
+ * timing, since a partial flight's own battery/tank accounting is a
+ * separate concern from "which passes."
+ *
+ * `from-start` / `from-end` take a contiguous prefix or suffix.
+ * `from-both` splits the included percentage evenly across *both*
+ * ends (e.g. "do the two edges of the field now, the middle later"),
+ * so `included` is two contiguous chunks and `excluded` is the single
+ * chunk between them — still in original flight order within each
+ * chunk, since that's what keeps every chunk on its own a sensible,
+ * flyable sub-route.
  */
-export function splitPlanPasses(plan: SprayPlan, percent: number, fromEnd: boolean): PlanSplit {
+export function splitPlanPasses(plan: SprayPlan, percent: number, direction: PlanSplitDirection): PlanSplit {
   const allPasses = plan.sorties.flatMap((sortie) => sortie.passes)
-  if (percent >= 100 || allPasses.length === 0) return { included: allPasses, excluded: [] }
+  const total = allPasses.length
+  if (percent >= 100 || total === 0) return { included: allPasses, excluded: [] }
   if (percent <= 0) return { included: [], excluded: allPasses }
 
-  const cutCount = Math.round((allPasses.length * percent) / 100)
-  return fromEnd
-    ? { included: allPasses.slice(allPasses.length - cutCount), excluded: allPasses.slice(0, allPasses.length - cutCount) }
-    : { included: allPasses.slice(0, cutCount), excluded: allPasses.slice(cutCount) }
+  if (direction === 'from-start') {
+    const cutCount = Math.round((total * percent) / 100)
+    return { included: allPasses.slice(0, cutCount), excluded: allPasses.slice(cutCount) }
+  }
+  if (direction === 'from-end') {
+    const cutCount = Math.round((total * percent) / 100)
+    return { included: allPasses.slice(total - cutCount), excluded: allPasses.slice(0, total - cutCount) }
+  }
+
+  // from-both: half the included percentage from each end — clamped to
+  // at most half the plan per side so the two chunks never overlap.
+  const halfCount = Math.min(Math.round((total * percent) / 100 / 2), Math.floor(total / 2))
+  return {
+    included: [...allPasses.slice(0, halfCount), ...allPasses.slice(total - halfCount)],
+    excluded: allPasses.slice(halfCount, total - halfCount),
+  }
 }

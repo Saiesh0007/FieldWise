@@ -24,7 +24,7 @@ function App() {
   const noSprayZones = useFieldStore((s) => s.noSprayZones)
   const sprayPlan = useFieldStore((s) => s.sprayPlan)
   const planSplitPercent = useFieldStore((s) => s.planSplitPercent)
-  const planSplitFromEnd = useFieldStore((s) => s.planSplitFromEnd)
+  const planSplitDirection = useFieldStore((s) => s.planSplitDirection)
   const projection = useFieldStore((s) => s.projection)
   const selectedEdgeId = useFieldStore((s) => s.selectedEdgeId)
   const setSelectedEdgeId = useFieldStore((s) => s.setSelectedEdgeId)
@@ -221,7 +221,7 @@ function App() {
             noSprayZones={noSprayZones}
             sprayPlan={currentStep === 'simulate' ? null : sprayPlan}
             planSplitPercent={planSplitPercent}
-            planSplitFromEnd={planSplitFromEnd}
+            planSplitDirection={planSplitDirection}
             projection={projection}
             selectedEdgeId={selectedEdgeId}
             onSelectEdge={setSelectedEdgeId}

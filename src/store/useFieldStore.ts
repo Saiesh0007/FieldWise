@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import { acceptEdgeRisk, applyWalkedEdgeCorrection, revokeAcceptedRisk } from '@/lib/geo/delta'
 import { DEFAULT_DRONE_PROFILE } from '@/lib/geo/defaults'
-import { planSprayPath, translateSprayPlan } from '@/lib/geo/planner'
+import { planSprayPath, translateSprayPlan, type PlanSplitDirection } from '@/lib/geo/planner'
 import {
   approximateCentroidLatLng,
   createLocalProjection,
@@ -69,7 +69,7 @@ interface FieldState {
    * touches `recompute()`.
    */
   planSplitPercent: number
-  planSplitFromEnd: boolean
+  planSplitDirection: PlanSplitDirection
 
   /** The boundary's local metric projection — recomputed (centered on the new centroid) whenever the boundary changes. */
   projection: LocalProjection | null
@@ -117,7 +117,7 @@ interface FieldState {
   resetPlanOffset: () => void
   /** Plan Splitting (§11.8) — 0-100, what fraction of the route to mark included. */
   setPlanSplitPercent: (percent: number) => void
-  setPlanSplitFromEnd: (fromEnd: boolean) => void
+  setPlanSplitDirection: (direction: PlanSplitDirection) => void
   /** Plan Splitting's Reset — back to 100% (the whole route included). */
   resetPlanSplit: () => void
   setSelectedEdgeId: (edgeId: string | null) => void
@@ -215,7 +215,7 @@ const initialState = {
   headLock: false,
   planOffsetLocal: { x: 0, y: 0 } as LocalPoint,
   planSplitPercent: 100,
-  planSplitFromEnd: false,
+  planSplitDirection: 'from-start' as PlanSplitDirection,
   projection: null as LocalProjection | null,
   sprayPlan: null as SprayPlan | null,
   planError: null as string | null,
@@ -288,8 +288,8 @@ export const useFieldStore = create<FieldState>((set) => ({
     }),
 
   setPlanSplitPercent: (planSplitPercent) => set({ planSplitPercent: Math.max(0, Math.min(100, planSplitPercent)) }),
-  setPlanSplitFromEnd: (planSplitFromEnd) => set({ planSplitFromEnd }),
-  resetPlanSplit: () => set({ planSplitPercent: 100, planSplitFromEnd: false }),
+  setPlanSplitDirection: (planSplitDirection) => set({ planSplitDirection }),
+  resetPlanSplit: () => set({ planSplitPercent: 100, planSplitDirection: 'from-start' }),
 
   setSelectedEdgeId: (selectedEdgeId) => set({ selectedEdgeId }),
 
@@ -329,7 +329,7 @@ export const useFieldStore = create<FieldState>((set) => ({
       headLock: false,
       planOffsetLocal: { x: 0, y: 0 },
       planSplitPercent: 100,
-      planSplitFromEnd: false,
+      planSplitDirection: 'from-start',
       selectedEdgeId: null,
       ...recompute({
         boundary: preset.boundary,
@@ -360,7 +360,7 @@ export const useFieldStore = create<FieldState>((set) => ({
       headLock: snapshot.headLock ?? false,
       planOffsetLocal: snapshot.planOffsetLocal ?? { x: 0, y: 0 },
       planSplitPercent: snapshot.planSplitPercent ?? 100,
-      planSplitFromEnd: snapshot.planSplitFromEnd ?? false,
+      planSplitDirection: snapshot.planSplitDirection ?? 'from-start',
       selectedEdgeId: null,
       currentStep: snapshot.boundary ? 'verify' : 'import',
       ...recompute(snapshot),

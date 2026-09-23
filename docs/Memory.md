@@ -208,6 +208,22 @@ This document captures historical context, Architectural Decision Records (ADRs)
 
 ---
 
+### ADR-017: Start/Finish Markers, Plan Splitting Colors & Third Direction — Real Bugs Caught by Actual Use
+* **Date:** 2026-09-24
+* **Status:** Accepted & Implemented
+* **Context:** First real usage feedback on ADR-016's work: "I am just able to see the red point... assume it to be finish point," plus a request to match AeroGCS Green's actual Plan Splitting colors (pasted directly from the manual: "Blue lines... represent areas excluded... yellow lines indicate the intended route"), plus "the plan split feature is bugged ig." Investigating turned up two distinct real issues, not one:
+  1. **A genuine visibility bug, not a color problem.** The Start and Finish markers were GeoJSON circle-layer features at `circle-radius: 8`. On the sample field's own boustrophedon path (an odd row count under `min-turns` heading), the last pass ends back at essentially the same corner it started from — so the two markers sat at near-identical coordinates, and whichever layer was added second (Finish, red) simply painted over the first (Start, green) at that pixel. Recoloring alone wouldn't have fixed this — two identical-looking markers stacked on each other is still only one visible marker.
+  2. **A real feature gap, not a bug per se.** The manual describes three Plan Splitting directions — "From start," "From end," and "Split Plan From Both Sides" — `splitPlanPasses` only had two (`fromEnd: boolean`). Missing "Both sides" is plausibly what read as "bugged" to someone testing against the manual's own screenshots.
+* **Decision:**
+  1. Start/Finish switched from two GeoJSON circle layers to two `maplibre-gl` `Marker` instances with a plain DOM element (a 22px green circle, white "S"/"F" text) — both markers now share one color (matching the request), and a DOM marker's stacking is trivially controllable, unlike two coincident GeoJSON point features. More importantly: when the two points are within `MIN_MARKER_SEPARATION_M` (12m) of each other, the Finish marker is nudged sideways — perpendicular to the line between them, in local meters via the existing projection — purely for on-screen legibility; the real mission's finish point (what live-progress tracking checks against) is untouched, only where the marker draws. Deliberately not a MapLibre `symbol` layer with `text-field`: that needs a glyphs server, and this project's map style has none by design (Rule 1, offline-first — no external font-glyph CDN dependency to add for two letters).
+  2. `splitPlanPasses`'s `fromEnd: boolean` became `direction: PlanSplitDirection` (`'from-start' | 'from-end' | 'from-both'`), threaded through the store (`planSplitFromEnd` → `planSplitDirection`), `PlanPanel`'s radio group (now three options), `SendPanel`'s upload filter, and `ProjectSnapshot`. `from-both` splits the included percentage evenly across both ends by slicing `[0, half)` and `[total-half, total)` (clamped so the two chunks can never overlap) — "do the two edges of the field now, the middle later" — leaving the single middle chunk excluded.
+  3. `spray-lines-layer` recolored from teal-green (`#1a7e69`) to yellow (`#eab308`) — matching the manual's "yellow = intended route" framing for the whole plan, not just an active split's included portion (a plan with nothing excluded is, in that framing, 100% intended). The excluded-passes layer gained a second, wide (10px), semi-transparent (`opacity: 0.35`) underlay beneath its existing solid 3px line, so the "blue overlay" reads as an actual band over the deferred area rather than a thin line easy to miss against satellite imagery — requested in those words ("blue overlay to depict what area of plot is being selected"), not just implied by the manual's plainer "blue lines."
+* **Consequences:**
+  * *Pros:* 2 new `planner.test.ts` cases for `from-both` (correct chunk placement; no overlap at high percentages — 214 tests total now). Browser-verified after the fix: both DOM markers present (`document.querySelectorAll('.maplibregl-marker')` → 2, text content `["S","F"]`), visibly separated side-by-side in a screenshot where they'd previously fully overlapped, spray lines rendering yellow, excluded lines rendering as a visible blue band, and "Both sides" at 40% correctly splitting into two yellow chunks (start + end) with one blue chunk in the middle.
+  * *Cons:* The `MIN_MARKER_SEPARATION_M` nudge is a fixed 12m in local (real-world) meters, not a screen-pixel distance — at a very zoomed-out view, 12m could still be sub-pixel and the markers could visually re-overlap; not fixed, since the app's actual usage is always zoomed to field-detail scale (the same assumption `FieldMap.tsx` already makes elsewhere, e.g. the fit-bounds padding). This is the second round of feedback on a feature built the same day it shipped — a reminder that "verified by browser screenshot" catches what's on screen at the moment of that screenshot, not every geometry a real field can produce (here: a path that returns to its own starting corner), which only showed up once used against the project's own real sample data with fresh eyes.
+
+---
+
 ## 2. Hardware Gotchas & Field Notes
 
 ### Pixhawk 2.4.8 USB Communication
@@ -236,7 +252,7 @@ This document captures historical context, Architectural Decision Records (ADRs)
 
 * **Command:** `npm test`
 * **Test Runner:** Vitest v5.0
-* **Status:** 26 test files, 212 tests passing (100% success rate).
+* **Status:** 26 test files, 214 tests passing (100% success rate).
 * **Key Test Suites:**
   * `project.test.ts`: Validation of project record creation, recency sorting, and snapshot serialization.
   * `scenario.test.ts`: End-to-end integration test of an L-shaped field with pond exclusion, verifying sorties, passes, volumes, and readiness gating.

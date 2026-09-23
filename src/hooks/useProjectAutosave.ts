@@ -29,7 +29,7 @@ export function useProjectAutosave() {
   const headLock = useFieldStore((s) => s.headLock)
   const planOffsetLocal = useFieldStore((s) => s.planOffsetLocal)
   const planSplitPercent = useFieldStore((s) => s.planSplitPercent)
-  const planSplitFromEnd = useFieldStore((s) => s.planSplitFromEnd)
+  const planSplitDirection = useFieldStore((s) => s.planSplitDirection)
   const activeProjectId = useFieldStore((s) => s.activeProjectId)
   const activeProjectName = useFieldStore((s) => s.activeProjectName)
   const setActiveProject = useFieldStore((s) => s.setActiveProject)
@@ -75,7 +75,7 @@ export function useProjectAutosave() {
       headLock,
       planOffsetLocal,
       planSplitPercent,
-      planSplitFromEnd,
+      planSplitDirection,
     }
 
     const timer = window.setTimeout(() => {
@@ -115,7 +115,7 @@ export function useProjectAutosave() {
     headLock,
     planOffsetLocal,
     planSplitPercent,
-    planSplitFromEnd,
+    planSplitDirection,
     activeProjectId,
     activeProjectName,
     setActiveProject,

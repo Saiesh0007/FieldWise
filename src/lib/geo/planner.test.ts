@@ -337,7 +337,7 @@ describe('splitPlanPasses — Plan Splitting (AeroGCS Green §11.8)', () => {
   it('at 100%, includes every pass and excludes none', () => {
     const plan = buildPlan()
     const allPasses = plan.sorties.flatMap((s) => s.passes)
-    const split = splitPlanPasses(plan, 100, false)
+    const split = splitPlanPasses(plan, 100, 'from-start')
     expect(split.included).toEqual(allPasses)
     expect(split.excluded).toEqual([])
   })
@@ -345,28 +345,51 @@ describe('splitPlanPasses — Plan Splitting (AeroGCS Green §11.8)', () => {
   it('at 0%, excludes every pass and includes none', () => {
     const plan = buildPlan()
     const allPasses = plan.sorties.flatMap((s) => s.passes)
-    const split = splitPlanPasses(plan, 0, false)
+    const split = splitPlanPasses(plan, 0, 'from-start')
     expect(split.included).toEqual([])
     expect(split.excluded).toEqual(allPasses)
   })
 
-  it('splits from the start: included is a prefix, excluded is the matching suffix', () => {
+  it('from-start: included is a prefix, excluded is the matching suffix', () => {
     const plan = buildPlan()
     const allPasses = plan.sorties.flatMap((s) => s.passes)
-    const split = splitPlanPasses(plan, 50, false)
+    const split = splitPlanPasses(plan, 50, 'from-start')
 
     expect(split.included).toEqual(allPasses.slice(0, split.included.length))
     expect(split.excluded).toEqual(allPasses.slice(split.included.length))
     expect(split.included.length + split.excluded.length).toBe(allPasses.length)
   })
 
-  it('splits from the end: included is a suffix, excluded is the matching prefix', () => {
+  it('from-end: included is a suffix, excluded is the matching prefix', () => {
     const plan = buildPlan()
     const allPasses = plan.sorties.flatMap((s) => s.passes)
-    const split = splitPlanPasses(plan, 50, true)
+    const split = splitPlanPasses(plan, 50, 'from-end')
 
     expect(split.included).toEqual(allPasses.slice(allPasses.length - split.included.length))
     expect(split.excluded).toEqual(allPasses.slice(0, allPasses.length - split.included.length))
     expect(split.included.length + split.excluded.length).toBe(allPasses.length)
+  })
+
+  it('from-both: included is a prefix plus a matching suffix, excluded is the single chunk between them', () => {
+    const plan = buildPlan()
+    const allPasses = plan.sorties.flatMap((s) => s.passes)
+    const split = splitPlanPasses(plan, 50, 'from-both')
+
+    expect(split.included.length + split.excluded.length).toBe(allPasses.length)
+    const halfCount = split.included.length / 2
+    expect(split.included.slice(0, halfCount)).toEqual(allPasses.slice(0, halfCount))
+    expect(split.included.slice(halfCount)).toEqual(allPasses.slice(allPasses.length - halfCount))
+    expect(split.excluded).toEqual(allPasses.slice(halfCount, allPasses.length - halfCount))
+  })
+
+  it('from-both never overlaps its two chunks even when percent is close to 100', () => {
+    const plan = buildPlan()
+    const allPasses = plan.sorties.flatMap((s) => s.passes)
+    const split = splitPlanPasses(plan, 90, 'from-both')
+
+    expect(split.included.length + split.excluded.length).toBe(allPasses.length)
+    // No pass appears in both included and excluded.
+    const includedSet = new Set(split.included)
+    for (const p of split.excluded) expect(includedSet.has(p)).toBe(false)
   })
 })

@@ -2,6 +2,7 @@ import {
   GeoJSONSource,
   Map as MapLibreMap,
   MapMouseEvent,
+  Marker as MapLibreMarker,
   NavigationControl,
   type LngLatBoundsLike,
 } from 'maplibre-gl'
@@ -10,7 +11,7 @@ import { useEffect, useRef, useState } from 'react'
 import { PhoneFrameOverlay } from '@/components/map/PhoneFrameOverlay'
 import { Button } from '@/components/ui/Button'
 import { circleToPolygon } from '@/lib/geo/circleObstacle'
-import { planFinishPoint, planStartPoint, splitPlanPasses } from '@/lib/geo/planner'
+import { planFinishPoint, planStartPoint, splitPlanPasses, type PlanSplitDirection } from '@/lib/geo/planner'
 import { createLocalProjection, type LocalProjection } from '@/lib/geo/projection'
 import { SAMPLE_FIELD_CENTER } from '@/lib/geo/sampleField'
 import type { FieldBoundary, LatLng, NoSprayZone, SprayPlan } from '@/lib/geo/types'
@@ -58,8 +59,6 @@ const SOURCE = {
   circleCenterPoint: 'circle-center-point',
   zoneEditHandles: 'zone-edit-handles',
   excludedLines: 'excluded-lines',
-  startPoint: 'start-point',
-  finishPoint: 'finish-point',
 } as const
 
 export type DrawTarget = 'boundary' | 'zone' | 'circle-zone' | null
@@ -79,9 +78,9 @@ interface FieldMapProps {
   boundary: FieldBoundary | null
   noSprayZones: NoSprayZone[]
   sprayPlan: SprayPlan | null
-  /** Plan Splitting (§11.8) — what fraction of the route (and from which end) to mark included; 100 (default) draws the whole plan with no split highlight. */
+  /** Plan Splitting (§11.8) — what fraction of the route (and from which end, or both) to mark included; 100 (default) draws the whole plan with no split highlight. */
   planSplitPercent?: number
-  planSplitFromEnd?: boolean
+  planSplitDirection?: PlanSplitDirection
   projection: LocalProjection | null
   selectedEdgeId: string | null
   onSelectEdge: (edgeId: string | null) => void
@@ -205,12 +204,39 @@ function nudgedEdgeMidpoint(
   return projection.toLatLng(nudged)
 }
 
+/**
+ * A plain DOM element for the Start/Finish markers — both the same
+ * green, distinguished only by their "S"/"F" letter, per the request
+ * that both read clearly as "a marker on the route" rather than one
+ * looking like a hazard (the old red Finish dot did) and the other not.
+ */
+function createStartFinishMarkerElement(letter: 'S' | 'F'): HTMLDivElement {
+  const el = document.createElement('div')
+  el.style.width = '22px'
+  el.style.height = '22px'
+  el.style.borderRadius = '50%'
+  el.style.background = '#16a34a'
+  el.style.border = '2.5px solid #ffffff'
+  el.style.boxShadow = '0 1px 3px rgba(0,0,0,0.4)'
+  el.style.display = 'flex'
+  el.style.alignItems = 'center'
+  el.style.justifyContent = 'center'
+  el.style.color = '#ffffff'
+  el.style.fontSize = '11px'
+  el.style.fontWeight = '700'
+  el.style.fontFamily = 'system-ui, sans-serif'
+  el.style.lineHeight = '1'
+  el.style.pointerEvents = 'none'
+  el.textContent = letter
+  return el
+}
+
 export function FieldMap({
   boundary,
   noSprayZones,
   sprayPlan,
   planSplitPercent = 100,
-  planSplitFromEnd = false,
+  planSplitDirection = 'from-start',
   projection,
   selectedEdgeId,
   onSelectEdge,
@@ -240,6 +266,8 @@ export function FieldMap({
 }: FieldMapProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<MapLibreMap | null>(null)
+  const startMarkerRef = useRef<MapLibreMarker | null>(null)
+  const finishMarkerRef = useRef<MapLibreMarker | null>(null)
   const [loaded, setLoaded] = useState(false)
   const [drawVertices, setDrawVertices] = useState<LatLng[]>([])
 
@@ -541,13 +569,17 @@ export function FieldMap({
       // because line-dasharray isn't a data-expression-safe paint
       // property, and because "solid vs dashed" needs to stay
       // unambiguous at a glance during the demo.
+      // Yellow — AeroGCS Green's own color for "the intended route" (see
+      // Plan Splitting, §11.8), used for the whole plan, not just a split's
+      // included portion — a plan with no split active is, in that
+      // framing, 100% "intended."
       map.addSource(SOURCE.sprayLines, { type: 'geojson', data: EMPTY_FEATURE_COLLECTION })
       map.addLayer({
         id: 'spray-lines-layer',
         type: 'line',
         source: SOURCE.sprayLines,
         layout: { 'line-cap': 'round' },
-        paint: { 'line-color': '#1a7e69', 'line-width': 2.5 },
+        paint: { 'line-color': '#eab308', 'line-width': 3 },
       })
       map.addSource(SOURCE.transitLines, { type: 'geojson', data: EMPTY_FEATURE_COLLECTION })
       map.addLayer({
@@ -573,31 +605,23 @@ export function FieldMap({
       // Plan Splitting (§11.8): the portion of the route deferred to a
       // later battery, drawn in blue over the spray/transit lines —
       // AeroGCS Green's own "blue = excluded, yellow = intended" convention.
+      // A wide, semi-transparent underlay plus a solid center line reads as
+      // a genuine "overlay band" over the deferred portion of the route,
+      // not just a thin line easy to miss against the satellite imagery.
       map.addSource(SOURCE.excludedLines, { type: 'geojson', data: EMPTY_FEATURE_COLLECTION })
+      map.addLayer({
+        id: 'excluded-lines-underlay',
+        type: 'line',
+        source: SOURCE.excludedLines,
+        layout: { 'line-cap': 'round' },
+        paint: { 'line-color': '#2563eb', 'line-width': 10, 'line-opacity': 0.35 },
+      })
       map.addLayer({
         id: 'excluded-lines-layer',
         type: 'line',
         source: SOURCE.excludedLines,
         layout: { 'line-cap': 'round' },
         paint: { 'line-color': '#2563eb', 'line-width': 3 },
-      })
-
-      // Start/Finish — where the mission's flight path actually begins
-      // and ends (the first pass's start, the last pass's end), distinct
-      // from the plain launch/refill home-point marker above.
-      map.addSource(SOURCE.startPoint, { type: 'geojson', data: EMPTY_FEATURE_COLLECTION })
-      map.addLayer({
-        id: 'start-point-layer',
-        type: 'circle',
-        source: SOURCE.startPoint,
-        paint: { 'circle-radius': 8, 'circle-color': '#16a34a', 'circle-stroke-color': '#ffffff', 'circle-stroke-width': 2.5 },
-      })
-      map.addSource(SOURCE.finishPoint, { type: 'geojson', data: EMPTY_FEATURE_COLLECTION })
-      map.addLayer({
-        id: 'finish-point-layer',
-        type: 'circle',
-        source: SOURCE.finishPoint,
-        paint: { 'circle-radius': 8, 'circle-color': '#dc2626', 'circle-stroke-color': '#ffffff', 'circle-stroke-width': 2.5 },
       })
 
       // In-progress drawing (click-to-add or live GPS walk).
@@ -908,6 +932,10 @@ export function FieldMap({
     return () => {
       window.removeEventListener('mouseup', stopDraggingPilot)
       window.removeEventListener('mouseup', stopDraggingZoneVertex)
+      startMarkerRef.current?.remove()
+      finishMarkerRef.current?.remove()
+      startMarkerRef.current = null
+      finishMarkerRef.current = null
       map.remove()
       mapRef.current = null
     }
@@ -1037,19 +1065,77 @@ export function FieldMap({
     }
 
     if (sprayPlan && projection && sprayPlan.sorties.length > 0) {
-      const start = planStartPoint(sprayPlan)
-      const finish = planFinishPoint(sprayPlan)
-      setData(map, SOURCE.startPoint, start ? latLngPointFeature(projection.toLatLng(start)) : EMPTY_FEATURE_COLLECTION)
-      setData(map, SOURCE.finishPoint, finish ? latLngPointFeature(projection.toLatLng(finish)) : EMPTY_FEATURE_COLLECTION)
-
-      const { excluded } = splitPlanPasses(sprayPlan, planSplitPercent, planSplitFromEnd)
+      const { excluded } = splitPlanPasses(sprayPlan, planSplitPercent, planSplitDirection)
       setData(map, SOURCE.excludedLines, passesToLineFeatureCollection(excluded, projection))
     } else {
-      setData(map, SOURCE.startPoint, EMPTY_FEATURE_COLLECTION)
-      setData(map, SOURCE.finishPoint, EMPTY_FEATURE_COLLECTION)
       setData(map, SOURCE.excludedLines, EMPTY_FEATURE_COLLECTION)
     }
-  }, [sprayPlan, planSplitPercent, planSplitFromEnd, projection, boundary, loaded])
+  }, [sprayPlan, planSplitPercent, planSplitDirection, projection, boundary, loaded])
+
+  // Start/Finish — where the mission's flight path actually begins and
+  // ends (the first pass's start, the last pass's end; not the same
+  // point as the plain launch/refill home-point marker above). Plain
+  // DOM markers (maplibre-gl's Marker), not a GeoJSON symbol layer,
+  // since a symbol layer's text needs a glyphs server this project's
+  // map style deliberately doesn't have (offline-first — no external
+  // font-glyph CDN dependency), and a DOM marker's label needs none.
+  // Both render the same green so a quick glance never misreads either
+  // one as some other kind of pin; the "S"/"F" letters are what
+  // distinguish them.
+  //
+  // A boustrophedon path very often finishes right next to where it
+  // started (an odd row count returns to the same side it began on) —
+  // on the sample field, literally the same corner. Two markers sitting
+  // at (near-)identical coordinates would put one directly underneath
+  // the other regardless of color/label, so when they're within
+  // MIN_MARKER_SEPARATION_M of each other, the finish marker is nudged
+  // sideways by that same distance (perpendicular to the line between
+  // them) purely for on-screen legibility — the actual mission's finish
+  // point (what "reached = 100% complete" tracks against) is unaffected,
+  // only where this marker is drawn.
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !loaded) return
+
+    if (!startMarkerRef.current) {
+      startMarkerRef.current = new MapLibreMarker({ element: createStartFinishMarkerElement('S'), anchor: 'center' })
+    }
+    if (!finishMarkerRef.current) {
+      finishMarkerRef.current = new MapLibreMarker({ element: createStartFinishMarkerElement('F'), anchor: 'center' })
+    }
+
+    const start = sprayPlan ? planStartPoint(sprayPlan) : null
+    let finish = sprayPlan ? planFinishPoint(sprayPlan) : null
+
+    const MIN_MARKER_SEPARATION_M = 12
+    if (start && finish) {
+      const dx = finish.x - start.x
+      const dy = finish.y - start.y
+      const dist = Math.hypot(dx, dy)
+      if (dist < MIN_MARKER_SEPARATION_M) {
+        // Perpendicular to the start->finish direction (or, if they're
+        // exactly coincident and there's no direction to be
+        // perpendicular to, an arbitrary fixed direction).
+        const len = dist || 1
+        const perp = dist > 0 ? { x: -dy / len, y: dx / len } : { x: 1, y: 0 }
+        finish = { x: finish.x + perp.x * MIN_MARKER_SEPARATION_M, y: finish.y + perp.y * MIN_MARKER_SEPARATION_M }
+      }
+    }
+
+    if (start && projection) {
+      const { lon, lat } = projection.toLatLng(start)
+      startMarkerRef.current.setLngLat([lon, lat]).addTo(map)
+    } else {
+      startMarkerRef.current.remove()
+    }
+
+    if (finish && projection) {
+      const { lon, lat } = projection.toLatLng(finish)
+      finishMarkerRef.current.setLngLat([lon, lat]).addTo(map)
+    } else {
+      finishMarkerRef.current.remove()
+    }
+  }, [sprayPlan, projection, loaded])
 
   // Blind vs. Sighted replay overlay: ground truth + active boundary outlines, and the heatmap itself.
   useEffect(() => {
@@ -1110,16 +1196,13 @@ export function FieldMap({
     const map = mapRef.current
     if (!map || !loaded) return
     const vis = (v: boolean) => (v ? 'visible' : 'none')
-    for (const id of [
-      'spray-lines-layer',
-      'transit-lines-layer',
-      'home-point-layer',
-      'excluded-lines-layer',
-      'start-point-layer',
-      'finish-point-layer',
-    ]) {
+    for (const id of ['spray-lines-layer', 'transit-lines-layer', 'home-point-layer', 'excluded-lines-underlay', 'excluded-lines-layer']) {
       map.setLayoutProperty(id, 'visibility', vis(showPlan))
     }
+    // The Start/Finish markers are plain DOM elements, not a style layer — toggle their own display, not setLayoutProperty. 'flex' (not '') to preserve the element's own centering layout when shown again.
+    const markerDisplay = showPlan ? 'flex' : 'none'
+    if (startMarkerRef.current) startMarkerRef.current.getElement().style.display = markerDisplay
+    if (finishMarkerRef.current) finishMarkerRef.current.getElement().style.display = markerDisplay
   }, [showPlan, loaded])
 
   // In-progress draw / live walk visualization — whichever is active.

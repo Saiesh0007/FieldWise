@@ -6,6 +6,7 @@
  * ProjectRecord), kept dependency-free so it's unit-testable without a
  * real IndexedDB — the actual database calls live in projectDb.ts.
  */
+import type { PlanSplitDirection } from '@/lib/geo/planner'
 import type { DroneProfile, FieldBoundary, LocalPoint, NoSprayZone, SweepStrategy } from '@/lib/geo/types'
 
 /** Exactly the session fields worth persisting — derived state (projection, sprayPlan, readiness, etc.) is cheap to recompute and never stored. */
@@ -20,9 +21,9 @@ export interface ProjectSnapshot {
   spacingOverrideM?: number | null
   headLock?: boolean
   planOffsetLocal?: LocalPoint
-  /** Plan Splitting (§11.8) — what fraction of the route (and from which end) is marked included. Optional, falls back to "100% / from start" (the whole route). */
+  /** Plan Splitting (§11.8) — what fraction of the route (and from which end, or both) is marked included. Optional, falls back to "100% / from start" (the whole route). */
   planSplitPercent?: number
-  planSplitFromEnd?: boolean
+  planSplitDirection?: PlanSplitDirection
 }
 
 export interface ProjectRecord {

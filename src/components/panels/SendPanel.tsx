@@ -80,7 +80,7 @@ export function SendPanel({ onCenterOnDrone }: SendPanelProps) {
   const boundary = useFieldStore((s) => s.boundary)
   const sprayPlan = useFieldStore((s) => s.sprayPlan)
   const planSplitPercent = useFieldStore((s) => s.planSplitPercent)
-  const planSplitFromEnd = useFieldStore((s) => s.planSplitFromEnd)
+  const planSplitDirection = useFieldStore((s) => s.planSplitDirection)
   const projection = useFieldStore((s) => s.projection)
   const droneProfile = useFieldStore((s) => s.droneProfile)
 
@@ -149,7 +149,7 @@ export function SendPanel({ onCenterOnDrone }: SendPanelProps) {
     return <div className="p-4 text-sm text-(--text-secondary)">No plan yet — go back to Plan.</div>
   }
 
-  const uploadSplit = splitPlanPasses(sprayPlan, planSplitPercent, planSplitFromEnd)
+  const uploadSplit = splitPlanPasses(sprayPlan, planSplitPercent, planSplitDirection)
   const isSplitActive = planSplitPercent < 100
 
   const handleConnect = async () => {
