@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Button } from '@/components/ui/Button'
 import { Spinner } from '@/components/ui/Spinner'
 import { StatCard } from '@/components/ui/StatCard'
+import { splitPlanPasses } from '@/lib/geo/planner'
 import type { LatLng } from '@/lib/geo/types'
 import { sprayPlanToWaypoints } from '@/lib/vehicle/missionFromPlan'
 import { PiRelayVehicle } from '@/lib/vehicle/piRelayVehicle'
@@ -78,6 +79,8 @@ interface SendPanelProps {
 export function SendPanel({ onCenterOnDrone }: SendPanelProps) {
   const boundary = useFieldStore((s) => s.boundary)
   const sprayPlan = useFieldStore((s) => s.sprayPlan)
+  const planSplitPercent = useFieldStore((s) => s.planSplitPercent)
+  const planSplitFromEnd = useFieldStore((s) => s.planSplitFromEnd)
   const projection = useFieldStore((s) => s.projection)
   const droneProfile = useFieldStore((s) => s.droneProfile)
 
@@ -146,6 +149,9 @@ export function SendPanel({ onCenterOnDrone }: SendPanelProps) {
     return <div className="p-4 text-sm text-(--text-secondary)">No plan yet — go back to Plan.</div>
   }
 
+  const uploadSplit = splitPlanPasses(sprayPlan, planSplitPercent, planSplitFromEnd)
+  const isSplitActive = planSplitPercent < 100
+
   const handleConnect = async () => {
     setConnectError(null)
     try {
@@ -161,7 +167,11 @@ export function SendPanel({ onCenterOnDrone }: SendPanelProps) {
     setUploadError(null)
     setUploadResult(null)
     try {
-      const waypoints = sprayPlanToWaypoints(sprayPlan, projection, droneProfile.altitudeM)
+      // Plan Splitting (§11.8): when the pilot has marked only part of the
+      // route for this sortie, upload just that subset — the rest is
+      // deferred to a later battery, not sent at all. At 100% (the
+      // default) `included` is every pass, so this is a no-op.
+      const waypoints = sprayPlanToWaypoints(uploadSplit.included, projection, droneProfile.altitudeM)
       const result = await vehicle.uploadAndVerifyMission(waypoints)
       setUploadResult(result)
     } catch (err) {
@@ -466,8 +476,9 @@ export function SendPanel({ onCenterOnDrone }: SendPanelProps) {
       <section className="space-y-2">
         <h3 className="text-xs font-semibold uppercase tracking-wide text-(--text-muted)">Upload mission</h3>
         <p className="text-xs text-(--text-secondary)">
-          Sends the current plan's {sprayPlan.sorties.reduce((s, sortie) => s + sortie.passes.length, 0)} legs as
-          waypoints, then downloads them back to verify the upload took.
+          {isSplitActive
+            ? `Sends only this sortie's ${uploadSplit.included.length} of ${uploadSplit.included.length + uploadSplit.excluded.length} legs (Plan Splitting is active — see Plan), then downloads them back to verify the upload took.`
+            : `Sends the current plan's ${uploadSplit.included.length} legs as waypoints, then downloads them back to verify the upload took.`}
         </p>
         <Button variant="primary" disabled={connectionState !== 'connected' || uploading} onClick={handleUpload}>
           {uploading && <Spinner className="text-white" />}

@@ -1,5 +1,12 @@
 /**
- * Flattens a SprayPlan into a flat MAVLink waypoint list for upload.
+ * Flattens a list of spray/transit passes into a flat MAVLink waypoint
+ * list for upload, with fresh contiguous sequence numbers starting at 0
+ * — the mission protocol requires that regardless of which passes were
+ * handed in, so this works identically whether the caller passes every
+ * pass in a SprayPlan or only the "included" subset from
+ * `splitPlanPasses` (Plan Splitting, AeroGCS Green §11.8): the upload
+ * itself never needs to know a split happened, only which passes to
+ * send.
  *
  * Known simplification: this sends every leg (spray and transit alike)
  * as a plain NAV_WAYPOINT at a constant altitude — it does not emit a
@@ -10,21 +17,19 @@
  * the mission is a follow-up, not something this function claims to do.
  */
 import type { LocalProjection } from '@/lib/geo/projection'
-import type { SprayPlan } from '@/lib/geo/types'
+import type { SprayPass } from '@/lib/geo/types'
 import { MAV_CMD_NAV_WAYPOINT } from './mavlink/messages'
 import type { MissionWaypoint } from './types'
 
-export function sprayPlanToWaypoints(plan: SprayPlan, projection: LocalProjection, altitudeM: number): MissionWaypoint[] {
+export function sprayPlanToWaypoints(passes: SprayPass[], projection: LocalProjection, altitudeM: number): MissionWaypoint[] {
   const localPoints: { x: number; y: number }[] = []
 
-  for (const sortie of plan.sorties) {
-    for (const pass of sortie.passes) {
-      const last = localPoints[localPoints.length - 1]
-      if (!last || last.x !== pass.start.x || last.y !== pass.start.y) {
-        localPoints.push(pass.start)
-      }
-      localPoints.push(pass.end)
+  for (const pass of passes) {
+    const last = localPoints[localPoints.length - 1]
+    if (!last || last.x !== pass.start.x || last.y !== pass.start.y) {
+      localPoints.push(pass.start)
     }
+    localPoints.push(pass.end)
   }
 
   return localPoints.map((p, seq) => ({

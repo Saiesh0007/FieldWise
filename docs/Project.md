@@ -37,7 +37,7 @@ FieldWise fundamentally alters this paradigm:
 | **Delta Correction Engine** | Splices walked GPS traces or trimmed curves into polygon edges, simplifying to accuracy radius and enforcing plausibility bounds. | `src/lib/geo/delta.ts`, `@turf/turf`, `polygon-clipping` |
 | **Local Metric Projection** | Projects WGS84 geographic coordinates to an accurate local Azimuthal Equidistant metric space centered on the field. | `src/lib/geo/projection.ts` using `proj4` (`+proj=aeqd`) |
 | **Swath & Sortie Planner** | Boustrophedon sweep planning with scanline even-odd slicing, heading optimization, transit connectors, and sortie constraints. | `src/lib/geo/planner.ts`, `droneProfile.ts` |
-| **Manual Plan Editing (AeroGCS Green §11, mostly done)** | Adjust Spacing (row-spacing override, 2–10m), Route Adjust (heading angle slider + Head Lock toggle), Move Plan (nudge the generated plan by an accumulated offset, independent of the boundary), and Plan Splitting (mark the first/last N% of the route as this sortie's included portion, excluded rest drawn in blue, for multi-battery missions). | `PlanPanel.tsx`, `src/lib/geo/planner.ts`'s `translateSprayPlan`/`splitPlanPasses` |
+| **Manual Plan Editing (AeroGCS Green §11, mostly done)** | Adjust Spacing (row-spacing override, 2–10m), Route Adjust (heading angle slider + Head Lock toggle), Move Plan (nudge the generated plan by an accumulated offset, independent of the boundary), and Plan Splitting (mark the first/last N% of the route as this sortie's included portion, excluded rest drawn in blue, for multi-battery missions — Upload mission actually sends only the included subset when a split is active). | `PlanPanel.tsx`, `src/lib/geo/planner.ts`'s `translateSprayPlan`/`splitPlanPasses`, `missionFromPlan.ts` |
 | **Start & Finish Points + Live Mission Progress** | The mission's actual flight-path start/finish (not the boundary's first vertex) render as distinct map markers; Send to Vehicle shows a live progress bar and a "mission 100% complete" banner once the vehicle reports reaching the last uploaded waypoint. | `planner.ts`'s `planStartPoint`/`planFinishPoint`, `FieldMap.tsx`, `mavlinkSession.ts` (`MISSION_ITEM_REACHED`) |
 | **Hard Safety Gate** | Evaluates plan readiness: blocks flight clearance and autopilot upload if unverified prior edges exist. | `src/lib/geo/readiness.ts` |
 | **Projects System & Autosave** | Local-first project management (create, rename, delete, recency sort) with debounced IndexedDB persistence. | `src/lib/storage/project.ts`, `projectDb.ts`, `useProjectAutosave.ts` |
@@ -84,7 +84,7 @@ The application guides the operator through an intuitive 6-stage lifecycle repre
 6. **Send to Vehicle:**
    - Connect Pixhawk flight controller via USB cable using Web Serial, or via a Raspberry Pi bridge over WebSocket if there's no telemetry radio and the Pi is only reachable over SSH.
    - Verify live telemetry (3D GPS lock, satellites, HDOP, Roll/Pitch artificial horizon, Heading compass, Battery, Altitude, Wind).
-   - Upload waypoints directly to Pixhawk via MAVLink mission protocol and verify readback integrity.
+   - Upload waypoints directly to Pixhawk via MAVLink mission protocol and verify readback integrity — honors Plan Splitting, uploading only the included subset when a split is active.
    - **Flight controls:** slide to arm, Brake (Alt Hold), Resume (Auto), Land — with a confirmation dialog before Disarm and Land.
    - **Live mission progress:** a progress bar and a "Finish point reached — mission 100% complete" banner once the vehicle reports reaching the last uploaded waypoint.
 
@@ -98,7 +98,7 @@ The application guides the operator through an intuitive 6-stage lifecycle repre
 * **Geospatial Math & GIS:** `proj4` (Local Azimuthal Equidistant `aeqd`), `@turf/turf`, `polygon-clipping`.
 * **State Management & Storage:** Zustand 5.0 with synchronous atomic `recompute()` pipeline, IndexedDB (`fieldwise-projects`), Cache API (`fieldwise-satellite-tiles-v1`).
 * **Hardware & Protocols:** Web Serial API (`navigator.serial`) or a Raspberry Pi WebSocket bridge, custom TypeScript MAVLink 1.0/2.0 codec with 17 supported message definitions.
-* **Code Quality & Testing:** Vitest (25 suites, 208 tests passing), Oxlint.
+* **Code Quality & Testing:** Vitest (26 suites, 212 tests passing), Oxlint.
 
 ---
 
