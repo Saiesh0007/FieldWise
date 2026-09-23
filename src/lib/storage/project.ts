@@ -11,6 +11,8 @@ import type { DroneProfile, FieldBoundary, NoSprayZone, SweepStrategy } from '@/
 /** Exactly the session fields worth persisting — derived state (projection, sprayPlan, readiness, etc.) is cheap to recompute and never stored. */
 export interface ProjectSnapshot {
   boundary: FieldBoundary | null
+  /** The pre-correction snapshot Simulate's Blind vs. Sighted replay compares against — see useFieldStore's `originalBoundary`. Optional so records saved before this field existed still deserialize. */
+  originalBoundary?: FieldBoundary | null
   noSprayZones: NoSprayZone[]
   droneProfile: DroneProfile
   sweepStrategy: SweepStrategy

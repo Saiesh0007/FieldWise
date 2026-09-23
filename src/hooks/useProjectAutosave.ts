@@ -21,6 +21,7 @@ const AUTOSAVE_DEBOUNCE_MS = 600
  */
 export function useProjectAutosave() {
   const boundary = useFieldStore((s) => s.boundary)
+  const originalBoundary = useFieldStore((s) => s.originalBoundary)
   const noSprayZones = useFieldStore((s) => s.noSprayZones)
   const droneProfile = useFieldStore((s) => s.droneProfile)
   const sweepStrategy = useFieldStore((s) => s.sweepStrategy)
@@ -59,7 +60,7 @@ export function useProjectAutosave() {
 
   useEffect(() => {
     if (!resumedRef.current) return // don't let the debounced autosave below race the initial resume and overwrite it with a blank session
-    const snapshot = { boundary, noSprayZones, droneProfile, sweepStrategy }
+    const snapshot = { boundary, originalBoundary, noSprayZones, droneProfile, sweepStrategy }
 
     const timer = window.setTimeout(() => {
       if (!activeProjectId) {
@@ -88,5 +89,5 @@ export function useProjectAutosave() {
     }, AUTOSAVE_DEBOUNCE_MS)
 
     return () => window.clearTimeout(timer)
-  }, [boundary, noSprayZones, droneProfile, sweepStrategy, activeProjectId, activeProjectName, setActiveProject])
+  }, [boundary, originalBoundary, noSprayZones, droneProfile, sweepStrategy, activeProjectId, activeProjectName, setActiveProject])
 }

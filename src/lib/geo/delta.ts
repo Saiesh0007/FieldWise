@@ -61,11 +61,11 @@ const SIMPLIFY_TOLERANCE_ACCURACY_MULTIPLIER = 1.5
  * hundreds of hectares.
  *
  * Calibrated against this project's own reference for "a real
- * correction": the Blind vs. Sighted demo scenario's satellite-vs-true
- * boundary offsets (lib/simulation/blindVsSightedScenario.ts) top out
- * around 20m on a ~250m-scale field — a season-out-of-date satellite
- * trace still isn't off by more than roughly a tenth of the field's own
- * size. 0.2 leaves headroom above that reference while still catching
+ * correction": a season-out-of-date satellite trace's typical offset
+ * from true ground, which tops out around 20m on a ~250m-scale field —
+ * a season-out-of-date satellite trace still isn't off by more than
+ * roughly a tenth of the field's own size. 0.2 leaves headroom above
+ * that reference while still catching
  * an into-the-interior-and-out-the-other-side excursion: on the sample
  * field (~336m diagonal), the first version of this guard (0.3, ~101m
  * cap) let an 84m real-world spike straight through — visibly wrong on

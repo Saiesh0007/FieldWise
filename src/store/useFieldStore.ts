@@ -38,6 +38,18 @@ interface FieldState {
   currentStep: WorkflowStep
 
   boundary: FieldBoundary | null
+  /**
+   * A snapshot of `boundary` taken the moment it was first created/loaded
+   * (Import, "Load sample field", or opening a saved project) — before
+   * any walk/trim/accept-risk correction touches it. Kept alongside the
+   * live boundary for the session's lifetime so Simulate's Blind vs.
+   * Sighted replay has an honest "before" to compare the pilot's actual
+   * corrections against, instead of a scripted stand-in. Never mutated
+   * or reassigned by a correction action — see lib/geo/delta.ts, which
+   * always returns a new boundary object rather than editing one in
+   * place, so this reference stays exactly what it was at import time.
+   */
+  originalBoundary: FieldBoundary | null
   noSprayZones: NoSprayZone[]
   droneProfile: DroneProfile
   sweepStrategy: SweepStrategy
@@ -152,6 +164,7 @@ function recompute(input: {
 const initialState = {
   currentStep: 'import' as WorkflowStep,
   boundary: null as FieldBoundary | null,
+  originalBoundary: null as FieldBoundary | null,
   noSprayZones: [] as NoSprayZone[],
   droneProfile: DEFAULT_DRONE_PROFILE,
   sweepStrategy: { kind: 'min-turns' } as SweepStrategy,
@@ -179,6 +192,8 @@ export const useFieldStore = create<FieldState>((set) => ({
   setBoundary: (boundary) =>
     set((state) => ({
       boundary,
+      // A fresh boundary from Import — re-snapshot the Blind baseline to match.
+      originalBoundary: boundary,
       selectedEdgeId: null,
       ...recompute({ ...state, boundary }),
     })),
@@ -231,6 +246,7 @@ export const useFieldStore = create<FieldState>((set) => ({
     const preset = loadSampleField()
     set((state) => ({
       boundary: preset.boundary,
+      originalBoundary: preset.boundary,
       noSprayZones: preset.noSprayZones,
       sweepStrategy: preset.sweepStrategy,
       droneProfile: DEFAULT_DRONE_PROFILE,
@@ -252,6 +268,11 @@ export const useFieldStore = create<FieldState>((set) => ({
       activeProjectId,
       activeProjectName,
       boundary: snapshot.boundary,
+      // Older saved projects (before this field existed) fall back to the
+      // live boundary — Blind vs. Sighted will read as "no corrections
+      // yet" for them, which is honest: there's no recorded pre-correction
+      // state to compare against.
+      originalBoundary: snapshot.originalBoundary ?? snapshot.boundary,
       noSprayZones: snapshot.noSprayZones,
       droneProfile: snapshot.droneProfile,
       sweepStrategy: snapshot.sweepStrategy,

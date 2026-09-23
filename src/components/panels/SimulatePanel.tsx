@@ -3,8 +3,10 @@ import { useEffect, useState } from 'react'
 import type { SimulateOverlay } from '@/components/map/FieldMap'
 import { Button } from '@/components/ui/Button'
 import { StatCard } from '@/components/ui/StatCard'
+import type { LocalProjection } from '@/lib/geo/projection'
+import type { LatLng } from '@/lib/geo/types'
 import { PROVENANCE_COLORS } from '@/lib/map/provenanceColors'
-import { runBlindVsSightedScenario, type BlindVsSightedScenario } from '@/lib/simulation/blindVsSightedScenario'
+import { boundaryHasCorrections, runSessionBlindVsSighted, type SessionBlindVsSighted } from '@/lib/simulation/sessionScenario'
 import type { ReplayResult } from '@/lib/simulation/replay'
 import { useFieldStore } from '@/store/useFieldStore'
 
@@ -16,24 +18,62 @@ type ReplayView = 'blind' | 'sighted'
 
 const ANIMATION_TICK_MS = 70
 
-export function SimulatePanel({ onOverlayChange }: SimulatePanelProps) {
-  const droneProfile = useFieldStore((s) => s.droneProfile)
+interface SessionScenario extends SessionBlindVsSighted {
+  groundTruthLatLng: LatLng[]
+  blindLatLng: LatLng[]
+  sightedLatLng: LatLng[]
+  projection: LocalProjection
+}
 
-  const [scenario, setScenario] = useState<BlindVsSightedScenario | null>(null)
+export function SimulatePanel({ onOverlayChange }: SimulatePanelProps) {
+  const boundary = useFieldStore((s) => s.boundary)
+  const originalBoundary = useFieldStore((s) => s.originalBoundary)
+  const noSprayZones = useFieldStore((s) => s.noSprayZones)
+  const droneProfile = useFieldStore((s) => s.droneProfile)
+  const sweepStrategy = useFieldStore((s) => s.sweepStrategy)
+  const projection = useFieldStore((s) => s.projection)
+
+  const [scenario, setScenario] = useState<SessionScenario | null>(null)
   const [view, setView] = useState<ReplayView>('blind')
   const [step, setStep] = useState(0)
   const [playing, setPlaying] = useState(false)
+
+  const hasCorrections = boundary && originalBoundary ? boundaryHasCorrections(originalBoundary, boundary) : false
 
   const activeResult: ReplayResult | null = scenario ? (view === 'blind' ? scenario.blindResult : scenario.sightedResult) : null
   const totalPasses = activeResult?.heatmap.totalPasses ?? 0
 
   const runScenario = () => {
-    const result = runBlindVsSightedScenario(droneProfile)
-    setScenario(result)
+    if (!boundary || !originalBoundary || !projection) return
+    const result = runSessionBlindVsSighted({
+      originalBoundary,
+      currentBoundary: boundary,
+      noSprayZones,
+      droneProfile,
+      sweepStrategy,
+      projection,
+    })
+    setScenario({
+      ...result,
+      groundTruthLatLng: boundary.vertices,
+      blindLatLng: originalBoundary.vertices,
+      sightedLatLng: boundary.vertices,
+      projection,
+    })
     setView('blind')
     setStep(0)
     setPlaying(true)
   }
+
+  // A live boundary edit (a new correction, or a brand-new import)
+  // invalidates whatever scenario is currently displayed — clear it
+  // rather than let the panel keep showing results that no longer match
+  // the pilot's actual session.
+  useEffect(() => {
+    setScenario(null)
+    setPlaying(false)
+    setStep(0)
+  }, [boundary])
 
   const switchView = (next: ReplayView) => {
     setView(next)
@@ -60,7 +100,7 @@ export function SimulatePanel({ onOverlayChange }: SimulatePanelProps) {
     }
     onOverlayChange({
       groundTruthLatLng: scenario.groundTruthLatLng,
-      activeBoundaryLatLng: view === 'blind' ? scenario.satelliteLatLng : scenario.correctedLatLng,
+      activeBoundaryLatLng: view === 'blind' ? scenario.blindLatLng : scenario.sightedLatLng,
       activeColor: view === 'blind' ? PROVENANCE_COLORS.satellite : PROVENANCE_COLORS.walked,
       heatmap: activeResult.heatmap,
       projection: scenario.projection,
@@ -76,14 +116,18 @@ export function SimulatePanel({ onOverlayChange }: SimulatePanelProps) {
       <div>
         <h2 className="text-sm font-semibold text-(--text-primary)">Blind vs. Sighted replay</h2>
         <p className="mt-1 text-xs text-(--text-secondary)">
-          A representative example, not a replay of your own session — this is a fixed, scripted scenario (the app
-          doesn't keep the pre-correction geometry once an edge is walked, so there's no honest way to replay your
-          own corrections here). Same ground truth, same drone profile, two plans, to illustrate the difference a
-          correction makes.
+          Compares your field's original boundary against your corrected boundary — same drone profile, two plans,
+          scored against the boundary you actually confirmed in Verify.
         </p>
       </div>
 
-      {!scenario ? (
+      {!boundary ? (
+        <p className="text-sm text-(--text-secondary)">No field loaded yet — import or load a field in the Import step first.</p>
+      ) : !hasCorrections ? (
+        <p className="text-sm text-(--text-secondary)">
+          No corrections made yet — walk or trim at least one edge in Verify to see the difference.
+        </p>
+      ) : !scenario ? (
         <Button variant="primary" onClick={runScenario}>
           Run replay
         </Button>
