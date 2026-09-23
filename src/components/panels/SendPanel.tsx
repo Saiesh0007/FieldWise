@@ -6,7 +6,7 @@ import { StatCard } from '@/components/ui/StatCard'
 import type { LatLng } from '@/lib/geo/types'
 import { sprayPlanToWaypoints } from '@/lib/vehicle/missionFromPlan'
 import { PiRelayVehicle } from '@/lib/vehicle/piRelayVehicle'
-import type { ConnectionState, MissionUploadResult, VehicleLink, VehicleTelemetry } from '@/lib/vehicle/types'
+import type { ConnectionState, FlightModeCommand, MissionUploadResult, VehicleLink, VehicleTelemetry } from '@/lib/vehicle/types'
 import { EMPTY_TELEMETRY } from '@/lib/vehicle/types'
 import { WebSerialVehicle } from '@/lib/vehicle/webSerialVehicle'
 import { useFieldStore } from '@/store/useFieldStore'
@@ -100,6 +100,9 @@ export function SendPanel({ onCenterOnDrone }: SendPanelProps) {
   const [uploading, setUploading] = useState(false)
   const [uploadResult, setUploadResult] = useState<MissionUploadResult | null>(null)
   const [uploadError, setUploadError] = useState<string | null>(null)
+  const [armSliderValue, setArmSliderValue] = useState(0)
+  const [commandBusy, setCommandBusy] = useState<null | 'arm' | 'disarm' | 'brake' | 'resume' | 'land'>(null)
+  const [commandError, setCommandError] = useState<string | null>(null)
 
   useEffect(() => {
     // A fresh vehicle instance (switching connection mode, or editing the
@@ -108,6 +111,9 @@ export function SendPanel({ onCenterOnDrone }: SendPanelProps) {
     setConnectionState(vehicle.getConnectionState())
     setTelemetry(EMPTY_TELEMETRY)
     setConnectError(null)
+    setArmSliderValue(0)
+    setCommandBusy(null)
+    setCommandError(null)
 
     const offTelemetry = vehicle.onTelemetry(setTelemetry)
     const offState = vehicle.onConnectionStateChange(setConnectionState)
@@ -163,6 +169,58 @@ export function SendPanel({ onCenterOnDrone }: SendPanelProps) {
     } finally {
       setUploading(false)
     }
+  }
+
+  // Slide-to-arm — the drag itself is the confirmation, so no extra
+  // dialog on top of it. Disarm and Land are single actions but each
+  // physically significant in its own way (disarming while flying is
+  // dangerous; landing aborts whatever the mission was doing), so both
+  // get an explicit confirm. Brake and Resume are meant to be fast,
+  // single-tap safety actions — gating those behind a dialog would work
+  // against the point of having them.
+  const handleArmSliderChange = async (value: number) => {
+    setArmSliderValue(value)
+    if (value < 100 || commandBusy) return
+    setCommandBusy('arm')
+    setCommandError(null)
+    try {
+      await vehicle.armDisarm(true)
+    } catch (err) {
+      setCommandError(err instanceof Error ? err.message : 'Arm command failed.')
+    } finally {
+      setCommandBusy(null)
+      setArmSliderValue(0)
+    }
+  }
+
+  const handleDisarm = async () => {
+    if (!window.confirm('Disarm the vehicle now?')) return
+    setCommandBusy('disarm')
+    setCommandError(null)
+    try {
+      await vehicle.armDisarm(false)
+    } catch (err) {
+      setCommandError(err instanceof Error ? err.message : 'Disarm command failed.')
+    } finally {
+      setCommandBusy(null)
+    }
+  }
+
+  const handleSetMode = async (mode: FlightModeCommand, busyLabel: 'brake' | 'resume' | 'land') => {
+    setCommandBusy(busyLabel)
+    setCommandError(null)
+    try {
+      await vehicle.setFlightMode(mode)
+    } catch (err) {
+      setCommandError(err instanceof Error ? err.message : `${busyLabel} command failed.`)
+    } finally {
+      setCommandBusy(null)
+    }
+  }
+
+  const handleLand = async () => {
+    if (!window.confirm('Land the vehicle now? This ends whatever the mission was doing.')) return
+    await handleSetMode('land', 'land')
   }
 
   return (
@@ -334,6 +392,72 @@ export function SendPanel({ onCenterOnDrone }: SendPanelProps) {
             {telemetry.heartbeatOk ? 'Heartbeat OK' : 'No recent heartbeat'}
             {telemetry.heartbeatAgeMs !== null && ` · ${Math.round(telemetry.heartbeatAgeMs / 1000)}s ago`}
           </div>
+        </section>
+      )}
+
+      {connectionState === 'connected' && (
+        <section className="space-y-3 rounded-(--radius-card) border border-(--border-subtle) bg-(--surface-panel) p-3">
+          <div className="flex items-center justify-between">
+            <h3 className="text-xs font-semibold uppercase tracking-wide text-(--text-muted)">Flight controls</h3>
+            {telemetry.armed !== null && (
+              <span
+                className={clsx(
+                  'rounded-full px-2 py-0.5 text-xs font-medium',
+                  telemetry.armed ? 'bg-danger-bg text-danger' : 'bg-(--surface-panel-raised) text-(--text-muted)',
+                )}
+              >
+                {telemetry.armed ? 'ARMED' : 'Disarmed'}
+              </span>
+            )}
+          </div>
+
+          {telemetry.armed ? (
+            <Button size="sm" variant="danger" disabled={commandBusy !== null} onClick={() => void handleDisarm()}>
+              {commandBusy === 'disarm' && <Spinner />}
+              Disarm
+            </Button>
+          ) : (
+            <div className="space-y-1">
+              <input
+                type="range"
+                min={0}
+                max={100}
+                className="w-full accent-danger"
+                value={armSliderValue}
+                disabled={commandBusy !== null}
+                onChange={(e) => void handleArmSliderChange(Number(e.target.value))}
+                // A slider a pilot only drags with a mouse/finger should
+                // never silently "complete" from a keyboard arrow key or
+                // a scroll — arming is exactly the wrong place for that.
+                onKeyDown={(e) => e.preventDefault()}
+                onWheel={(e) => e.preventDefault()}
+              />
+              <p className="text-center text-xs text-(--text-muted)">
+                {commandBusy === 'arm' ? 'Arming…' : 'Slide all the way to arm'}
+              </p>
+            </div>
+          )}
+
+          <div className="grid grid-cols-3 gap-2">
+            <Button size="sm" variant="secondary" disabled={commandBusy !== null} onClick={() => void handleSetMode('alt-hold', 'brake')}>
+              {commandBusy === 'brake' && <Spinner />}
+              Brake
+            </Button>
+            <Button size="sm" variant="secondary" disabled={commandBusy !== null} onClick={() => void handleSetMode('auto', 'resume')}>
+              {commandBusy === 'resume' && <Spinner />}
+              Resume
+            </Button>
+            <Button size="sm" variant="danger" disabled={commandBusy !== null} onClick={() => void handleLand()}>
+              {commandBusy === 'land' && <Spinner />}
+              Land
+            </Button>
+          </div>
+          <p className="text-xs text-(--text-muted)">
+            Brake holds altitude in place (Alt Hold). Resume picks the loaded mission back up from wherever it left
+            off (Auto). Land begins landing immediately.
+          </p>
+
+          {commandError && <p className="text-xs text-danger">{commandError}</p>}
         </section>
       )}
 

@@ -63,7 +63,7 @@ Phase 8: Advanced Autonomy & RTK ───────────────�
 ### Phase 5: Hardware Link & Dual Replay Simulator (Completed)
 * **Objective:** Bridge directly to physical drone hardware and demonstrate the tangible safety advantage of delta corrections.
 * **Key Deliverables:**
-  * Custom TypeScript MAVLink 1.0 & 2.0 packet codec with CRC-16-CCITT and per-message `CRC_EXTRA` seeds across 14 supported messages (`src/lib/vehicle/mavlink/`).
+  * Custom TypeScript MAVLink 1.0 & 2.0 packet codec with CRC-16-CCITT and per-message `CRC_EXTRA` seeds across 17 supported messages (`src/lib/vehicle/mavlink/`).
   * W3C Web Serial API driver (`webSerialVehicle.ts`) for direct USB connection to Pixhawk autopilots without companion computers.
   * Mission protocol upload and byte-by-byte readback verification handshake (`mavlinkSession.ts`).
   * Dual-mode replay simulator ("The Drone That Flew Blind" vs "The Sighted Drone") visualizing collision/overspray prevention in real-time (`replay.ts`, `blindVsSightedScenario.ts`).

@@ -12,15 +12,23 @@
  */
 import { encodeFrame, MavlinkFrameReader, type DecodedFrame } from './mavlink/codec'
 import {
+  ARDUCOPTER_MODE_ALT_HOLD,
+  ARDUCOPTER_MODE_AUTO,
   ARDUCOPTER_MODE_LABELS,
+  ARDUCOPTER_MODE_LAND,
   ATTITUDE,
+  COMMAND_ACK,
+  COMMAND_LONG,
   GLOBAL_POSITION_INT,
   GPS_RAW_INT,
   HEARTBEAT,
   MAV_AUTOPILOT_INVALID,
+  MAV_CMD_COMPONENT_ARM_DISARM,
   MAV_FRAME_GLOBAL_RELATIVE_ALT_INT,
   MAV_MISSION_ACCEPTED,
   MAV_MODE_FLAG_CUSTOM_MODE_ENABLED,
+  MAV_MODE_FLAG_SAFETY_ARMED,
+  MAV_RESULT_ACCEPTED,
   MAV_STATE_ACTIVE,
   MAV_STATE_LABELS,
   MAV_TYPE_GCS,
@@ -30,12 +38,19 @@ import {
   MISSION_REQUEST,
   MISSION_REQUEST_INT,
   MISSION_REQUEST_LIST,
+  SET_MODE,
   SYS_STATUS,
   VFR_HUD,
   WIND,
 } from './mavlink/messages'
-import type { MissionUploadResult, MissionWaypoint, VehicleLinkEvents, VehicleTelemetry } from './types'
+import type { FlightModeCommand, MissionUploadResult, MissionWaypoint, VehicleLinkEvents, VehicleTelemetry } from './types'
 import { EMPTY_TELEMETRY } from './types'
+
+const FLIGHT_MODE_CUSTOM_NUMBER: Record<FlightModeCommand, number> = {
+  'alt-hold': ARDUCOPTER_MODE_ALT_HOLD,
+  auto: ARDUCOPTER_MODE_AUTO,
+  land: ARDUCOPTER_MODE_LAND,
+}
 
 // Our (the GCS's) own MAVLink identity. 255 is the conventional GCS
 // system id; component id 190 (MAV_COMP_ID_MISSIONPLANNER-ish range) is
@@ -45,6 +60,9 @@ export const GCS_COMPID = 190
 
 export const HEARTBEAT_STALE_MS = 5000
 export const MISSION_STEP_TIMEOUT_MS = 3000
+export const COMMAND_ACK_TIMEOUT_MS = 3000
+/** ArduPilot doesn't ACK a legacy SET_MODE — confirmation is the vehicle's own next heartbeat reflecting the new mode, which can take a couple of heartbeat cycles, hence a longer timeout than the ACK-based commands above. */
+export const MODE_CHANGE_TIMEOUT_MS = 5000
 const POSITION_TOLERANCE_DEG = 1e-5 // ~1m at the equator — generous enough for int32 round-trip + firmware rounding
 
 function fixTypeLabel(value: number): VehicleTelemetry['gps']['fixType'] {
@@ -133,6 +151,7 @@ export class MavlinkSession {
         heartbeatAgeMs: 0,
         systemStatus: MAV_STATE_LABELS[f.systemStatus] ?? `status ${f.systemStatus}`,
         flightMode: customModeEnabled ? (ARDUCOPTER_MODE_LABELS[f.customMode] ?? `Mode ${f.customMode}`) : null,
+        armed: (f.baseMode & MAV_MODE_FLAG_SAFETY_ARMED) !== 0,
       }
       this.emitTelemetry()
     } else if (frame.msgId === SYS_STATUS.id) {
@@ -214,6 +233,48 @@ export class MavlinkSession {
 
   waitForHeartbeat(timeoutMs: number): Promise<DecodedFrame> {
     return this.waitForFrame((f) => f.msgId === HEARTBEAT.id, timeoutMs)
+  }
+
+  /** Arms (or disarms) via MAV_CMD_COMPONENT_ARM_DISARM, waiting for the vehicle's COMMAND_ACK before resolving. */
+  async armDisarm(arm: boolean): Promise<void> {
+    await this.send(COMMAND_LONG, {
+      targetSystem: this.vehicleSysId,
+      targetComponent: this.vehicleCompId,
+      command: MAV_CMD_COMPONENT_ARM_DISARM,
+      confirmation: 0,
+      param1: arm ? 1 : 0,
+      param2: 0,
+      param3: 0,
+      param4: 0,
+      param5: 0,
+      param6: 0,
+      param7: 0,
+    })
+    const ack = await this.waitForFrame(
+      (f) => f.msgId === COMMAND_ACK.id && f.fields.command === MAV_CMD_COMPONENT_ARM_DISARM,
+      COMMAND_ACK_TIMEOUT_MS,
+    )
+    if (ack.fields.result !== MAV_RESULT_ACCEPTED) {
+      throw new Error(
+        `Vehicle rejected the ${arm ? 'arm' : 'disarm'} request (MAV_RESULT code ${ack.fields.result}) — most likely a failed pre-arm safety check (no GPS lock, bad calibration, etc). This app doesn't decode the vehicle's STATUSTEXT messages, so the specific reason isn't available here; check the flight controller's own logs or another GCS for details.`,
+      )
+    }
+  }
+
+  /**
+   * Brake (alt-hold), Resume (auto — picks the mission back up from its
+   * current waypoint), or Land. ArduPilot doesn't COMMAND_ACK the legacy
+   * SET_MODE message, so the only real confirmation is the vehicle's own
+   * next heartbeat reporting the new custom_mode.
+   */
+  async setFlightMode(mode: FlightModeCommand): Promise<void> {
+    const customMode = FLIGHT_MODE_CUSTOM_NUMBER[mode]
+    await this.send(SET_MODE, {
+      targetSystem: this.vehicleSysId,
+      baseMode: MAV_MODE_FLAG_CUSTOM_MODE_ENABLED,
+      customMode,
+    })
+    await this.waitForFrame((f) => f.msgId === HEARTBEAT.id && f.fields.customMode === customMode, MODE_CHANGE_TIMEOUT_MS)
   }
 
   /** Rejects every pending waiter — call when the transport is torn down, so nothing hangs forever. */

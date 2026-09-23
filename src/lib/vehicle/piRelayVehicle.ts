@@ -25,7 +25,7 @@
  * bridge/README.md and VEHICLE_CONNECTION_CHECKLIST.md.
  */
 import { MavlinkSession, HEARTBEAT_STALE_MS } from './mavlinkSession'
-import type { ConnectionState, MissionUploadResult, MissionWaypoint, VehicleLink, VehicleLinkEvents } from './types'
+import type { ConnectionState, FlightModeCommand, MissionUploadResult, MissionWaypoint, VehicleLink, VehicleLinkEvents } from './types'
 
 const HEARTBEAT_INTERVAL_MS = 1000
 const CONNECT_TIMEOUT_MS = 6000
@@ -156,6 +156,16 @@ export class PiRelayVehicle implements VehicleLink {
   async uploadAndVerifyMission(waypoints: MissionWaypoint[]): Promise<MissionUploadResult> {
     if (this.connectionState !== 'connected') throw new Error('Not connected to a vehicle.')
     return this.session.uploadAndVerifyMission(waypoints)
+  }
+
+  async armDisarm(arm: boolean): Promise<void> {
+    if (this.connectionState !== 'connected') throw new Error('Not connected to a vehicle.')
+    return this.session.armDisarm(arm)
+  }
+
+  async setFlightMode(mode: FlightModeCommand): Promise<void> {
+    if (this.connectionState !== 'connected') throw new Error('Not connected to a vehicle.')
+    return this.session.setFlightMode(mode)
   }
 }
 

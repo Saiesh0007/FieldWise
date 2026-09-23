@@ -141,8 +141,8 @@ sequenceDiagram
 ### 3.4. Vehicle Link & MAVLink Communication (`src/lib/vehicle/`)
 * **Web Serial Transport (`webSerialVehicle.ts`):** Direct hardware transport using `navigator.serial` at 115,200 baud.
 * **Pi Bridge Transport (`piRelayVehicle.ts`):** Same `VehicleLink` interface, over a WebSocket instead — for a Pixhawk with no telemetry radio, wired to a Raspberry Pi that's only reachable over SSH (so the browser, on a different machine, can't use Web Serial to reach it at all). `bridge/serial-ws-bridge.mjs` runs on the Pi, opens the Pixhawk's serial port, and relays the raw byte stream unmodified in both directions to exactly one connected client. See ADR-014.
-* **MAVLink Codec & Messages (`src/lib/vehicle/mavlink/`):** Custom MAVLink 1.0 & 2.0 packet encoder and decoder supporting CRC-16-CCITT and `CRC_EXTRA` seeds across 14 message types:
-  - `HEARTBEAT` (0), `SYS_STATUS` (1), `GPS_RAW_INT` (24), `ATTITUDE` (30), `GLOBAL_POSITION_INT` (33), `MISSION_REQUEST` (40), `MISSION_REQUEST_LIST` (43), `MISSION_COUNT` (44), `MISSION_ITEM_REACHED` (46), `MISSION_ACK` (47), `MISSION_REQUEST_INT` (51), `MISSION_ITEM_INT` (73), `VFR_HUD` (74), and `WIND` (168).
+* **MAVLink Codec & Messages (`src/lib/vehicle/mavlink/`):** Custom MAVLink 1.0 & 2.0 packet encoder and decoder supporting CRC-16-CCITT and `CRC_EXTRA` seeds across 17 message types:
+  - `HEARTBEAT` (0), `SET_MODE` (11), `SYS_STATUS` (1), `GPS_RAW_INT` (24), `ATTITUDE` (30), `GLOBAL_POSITION_INT` (33), `MISSION_REQUEST` (40), `MISSION_REQUEST_LIST` (43), `MISSION_COUNT` (44), `MISSION_ITEM_REACHED` (46), `MISSION_ACK` (47), `MISSION_REQUEST_INT` (51), `COMMAND_LONG` (76), `COMMAND_ACK` (77), `MISSION_ITEM_INT` (73), `VFR_HUD` (74), and `WIND` (168).
 * **Live Telemetry Decoding:**
   - Battery voltage and remaining percentage (`SYS_STATUS`).
   - Altitude AGL, heading, airspeed (`VFR_HUD`).

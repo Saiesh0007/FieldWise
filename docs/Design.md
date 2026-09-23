@@ -240,8 +240,9 @@ If unverified edges exist, `cleared` is `false` and `blockingEdgeIds` lists all 
 ### 3.3. Supported MAVLink Messages
 | ID | Message Name | Payload (Bytes) | CRC_EXTRA | Direction | Description |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| 0 | `HEARTBEAT` | 9 | 50 | Bidirectional | GCS heartbeat sent at 1 Hz; decodes autopilot type and custom flight mode |
+| 0 | `HEARTBEAT` | 9 | 50 | Bidirectional | GCS heartbeat sent at 1 Hz; decodes autopilot type, custom flight mode, and the armed flag (`MAV_MODE_FLAG_SAFETY_ARMED`) |
 | 1 | `SYS_STATUS` | 43 | 124 | Receive | Decodes battery voltage (`voltageBattery / 1000.0`) and remaining % (`batteryRemaining`) |
+| 11 | `SET_MODE` | 6 | 89 | Send | Legacy mode-change message — ArduPilot's expected way for a GCS to request a flight-mode change (Brake/Resume/Land); not ACKed, confirmation is the vehicle's next HEARTBEAT reflecting the new mode |
 | 24 | `GPS_RAW_INT` | 52 | 24 | Receive | Decodes fix type (`fixType`), satellite count, and HDOP (`eph / 100.0`) |
 | 30 | `ATTITUDE` | 28 | 39 | Receive | Decodes vehicle roll, pitch, and yaw in radians (converted to degrees) |
 | 33 | `GLOBAL_POSITION_INT` | 28 | 104 | Receive | Decodes vehicle latitude ($10^7$), longitude ($10^7$), and relative altitude AGL |
@@ -253,11 +254,43 @@ If unverified edges exist, `cleared` is `false` and `blockingEdgeIds` lists all 
 | 51 | `MISSION_REQUEST_INT` | 5 | 196 | Receive | Requests specific waypoint sequence $i$ using integer micro-degrees |
 | 73 | `MISSION_ITEM_INT` | 38 | 38 | Bidirectional | Waypoint coordinates ($10^7$), altitude — every leg is a plain `MAV_CMD_NAV_WAYPOINT` (16); **no `DO_SET_SERVO`/actuator command is sent** — uploads are coverage geometry only, not sprayer on/off control (a deliberate, documented scope cut, not an oversight — see `missionFromPlan.ts`'s header comment) |
 | 74 | `VFR_HUD` | 20 | 20 | Receive | Decodes airspeed, groundspeed, barometric altitude, and compass heading |
+| 76 | `COMMAND_LONG` | 33 | 152 | Send | Generic command message — this app only ever sends `MAV_CMD_COMPONENT_ARM_DISARM` (400) through it, for the Arm/Disarm slider and button |
+| 77 | `COMMAND_ACK` | 10 | 143 | Receive | The vehicle's response to a `COMMAND_LONG` — `result == 0` (`MAV_RESULT_ACCEPTED`) means it took; any other code surfaces as a rejection (most commonly a failed pre-arm check) |
 | 168 | `WIND` | 12 | 1 | Receive | Decodes ArduPilot-estimated wind direction and horizontal speed |
+
+**All three above were sourced from the `mavlink-mappings` npm package** (generated from MAVLink's own XML), the same method as every other row in this table — and cross-checked by confirming that source's `CRC_EXTRA` for the 9 pre-existing messages above matched exactly before trusting it for these 3 new ones. See Memory.md ADR-015.
 
 ### 3.4. ArduCopter Mode Decoding
 When `HEARTBEAT.baseMode` includes `MAV_MODE_FLAG_CUSTOM_MODE_ENABLED` (bit 0), `customMode` maps to standard ArduCopter modes:
 * `0`: Stabilize, `2`: Alt Hold, `3`: Auto, `4`: Guided, `5`: Loiter, `6`: RTL, `9`: Land, `11`: Drift, `13`: Sport, `16`: PosHold, `17`: Brake, `20`: Guided (no GPS), `21`: Smart RTL.
+
+The `armed` flag decodes the same field's bit 7 (`MAV_MODE_FLAG_SAFETY_ARMED`, `0b10000000`) — independent of which custom mode is active.
+
+### 3.5. Flight Command Flow (Arm/Brake/Resume/Land)
+Two request/confirmation shapes, depending on whether ArduPilot ACKs the message type:
+```
+Arm/Disarm:                              Mode change (Brake/Resume/Land):
+  COMMAND_LONG                             SET_MODE
+  (command=MAV_CMD_COMPONENT_ARM_DISARM,   (custom_mode=target, base_mode=
+   param1=1|0)                             CUSTOM_MODE_ENABLED)
+        │                                         │
+        ▼                                         ▼
+  wait for COMMAND_ACK                     wait for the vehicle's next
+  matching that command                    HEARTBEAT with that custom_mode
+        │                                         │
+  result==MAV_RESULT_ACCEPTED?             (no ACK exists for legacy
+   yes → resolve                            SET_MODE — a heartbeat
+   no  → reject with the MAV_RESULT code    reflecting the mode IS
+                                             the confirmation)
+```
+Brake → `ARDUCOPTER_MODE_ALT_HOLD` (2), matching the pilot's own stated
+intent for that button — not ArduCopter's distinctly-named `BRAKE` mode
+(17), which is a different, automatic stop-and-hold behavior. Resume →
+`ARDUCOPTER_MODE_AUTO` (3); re-entering `AUTO` resumes ArduCopter's
+loaded mission from its current waypoint automatically, so no
+`MISSION_SET_CURRENT` message is sent. Land → `ARDUCOPTER_MODE_LAND` (9).
+See Memory.md ADR-015 for why these two request shapes differ and what's
+still unverified against real hardware.
 
 ---
 

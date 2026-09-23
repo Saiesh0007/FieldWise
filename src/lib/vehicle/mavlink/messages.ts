@@ -251,6 +251,52 @@ export const MISSION_ITEM_INT: MessageDef = {
   ],
 }
 
+/** Legacy mode-change message — still what ArduPilot expects for a GCS-initiated flight-mode change (Route Adjust's Brake/Resume/Land buttons). */
+export const SET_MODE: MessageDef = {
+  id: 11,
+  name: 'SET_MODE',
+  payloadLength: 6,
+  crcExtra: 89,
+  fields: [
+    { name: 'customMode', offset: 0, type: 'uint32' },
+    { name: 'targetSystem', offset: 4, type: 'uint8' },
+    { name: 'baseMode', offset: 5, type: 'uint8' },
+  ],
+}
+
+/** The generic "do a thing" command message — this project only ever sends MAV_CMD_COMPONENT_ARM_DISARM through it. */
+export const COMMAND_LONG: MessageDef = {
+  id: 76,
+  name: 'COMMAND_LONG',
+  payloadLength: 33,
+  crcExtra: 152,
+  fields: [
+    { name: 'param1', offset: 0, type: 'float' },
+    { name: 'param2', offset: 4, type: 'float' },
+    { name: 'param3', offset: 8, type: 'float' },
+    { name: 'param4', offset: 12, type: 'float' },
+    { name: 'param5', offset: 16, type: 'float' },
+    { name: 'param6', offset: 20, type: 'float' },
+    { name: 'param7', offset: 24, type: 'float' },
+    { name: 'command', offset: 28, type: 'uint16' },
+    { name: 'targetSystem', offset: 30, type: 'uint8' },
+    { name: 'targetComponent', offset: 31, type: 'uint8' },
+    { name: 'confirmation', offset: 32, type: 'uint8' },
+  ],
+}
+
+/** The vehicle's response to a COMMAND_LONG — whether it was accepted. Only `command`/`result` are modeled; progress/result_param2/target_system/target_component are MAVLink v2 extension fields this app doesn't read (payloadLength is still the full official 10 bytes, matching this file's convention for every other message here — see the header comment). */
+export const COMMAND_ACK: MessageDef = {
+  id: 77,
+  name: 'COMMAND_ACK',
+  payloadLength: 10,
+  crcExtra: 143,
+  fields: [
+    { name: 'command', offset: 0, type: 'uint16' },
+    { name: 'result', offset: 2, type: 'uint8' },
+  ],
+}
+
 /** Registry keyed by MSG_ID, for the incoming-frame decoder. */
 export const MESSAGE_REGISTRY: Record<number, MessageDef> = Object.fromEntries(
   [
@@ -268,17 +314,39 @@ export const MESSAGE_REGISTRY: Record<number, MessageDef> = Object.fromEntries(
     MISSION_ACK,
     MISSION_REQUEST_INT,
     MISSION_ITEM_INT,
+    SET_MODE,
+    COMMAND_LONG,
+    COMMAND_ACK,
   ].map((def) => [def.id, def]),
 )
 
 // MAV_FRAME (only the one we use — global position, relative altitude).
 export const MAV_FRAME_GLOBAL_RELATIVE_ALT_INT = 3
 
-// MAV_CMD (only the one we use — a plain navigation waypoint).
+// MAV_CMD (only the ones we use — a plain navigation waypoint, and arm/disarm).
 export const MAV_CMD_NAV_WAYPOINT = 16
+export const MAV_CMD_COMPONENT_ARM_DISARM = 400
 
 // MAV_MISSION_RESULT (only the ones the UI distinguishes).
 export const MAV_MISSION_ACCEPTED = 0
+
+// MAV_RESULT (COMMAND_ACK.result) — only the "did it work" distinction the UI needs; every non-zero code surfaces as a rejection.
+export const MAV_RESULT_ACCEPTED = 0
+
+// MAV_MODE_FLAG_SAFETY_ARMED — bit in HEARTBEAT.base_mode indicating the vehicle is currently armed.
+export const MAV_MODE_FLAG_SAFETY_ARMED = 0b10000000
+
+/**
+ * ArduCopter's flight-mode numbers (HEARTBEAT.custom_mode / SET_MODE's
+ * target) for the three modes Route Adjust's Brake/Resume/Land buttons
+ * command. Re-entering AUTO after leaving it resumes the loaded mission
+ * from its current waypoint index automatically — ArduCopter's own
+ * documented behavior — so "Resume" needs no MISSION_SET_CURRENT, just
+ * this mode change.
+ */
+export const ARDUCOPTER_MODE_ALT_HOLD = 2
+export const ARDUCOPTER_MODE_AUTO = 3
+export const ARDUCOPTER_MODE_LAND = 9
 
 // MAV_TYPE / MAV_AUTOPILOT / MAV_STATE — used for the heartbeat we (the GCS) send.
 export const MAV_TYPE_GCS = 6

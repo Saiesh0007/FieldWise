@@ -12,14 +12,21 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { encodeFrame, MavlinkFrameReader, type DecodedFrame } from './mavlink/codec'
 import {
+  COMMAND_ACK,
+  COMMAND_LONG,
   HEARTBEAT,
+  MAV_CMD_COMPONENT_ARM_DISARM,
   MAV_FRAME_GLOBAL_RELATIVE_ALT_INT,
   MAV_MISSION_ACCEPTED,
+  MAV_MODE_FLAG_CUSTOM_MODE_ENABLED,
+  MAV_MODE_FLAG_SAFETY_ARMED,
+  MAV_RESULT_ACCEPTED,
   MISSION_ACK,
   MISSION_COUNT,
   MISSION_ITEM_INT,
   MISSION_REQUEST_INT,
   MISSION_REQUEST_LIST,
+  SET_MODE,
   SYS_STATUS,
   VFR_HUD,
   WIND,
@@ -35,8 +42,11 @@ class FakeVehicle {
   private reader = new MavlinkFrameReader()
   private mission: Array<{ seq: number; command: number; x: number; y: number; z: number }> = []
   private seqCounter = 0
+  private armed = false
+  private customMode = 0
   onOutgoing: (bytes: Uint8Array) => void = () => {}
   rejectUploads = false
+  rejectArm = false
 
   receive(bytes: Uint8Array) {
     for (const frame of this.reader.push(bytes)) this.handle(frame)
@@ -44,6 +54,11 @@ class FakeVehicle {
 
   sendHeartbeat() {
     this.send(HEARTBEAT, { customMode: 0, type: 2, autopilot: 3, baseMode: 81, systemStatus: 4, mavlinkVersion: 3 })
+  }
+
+  private sendCurrentStateHeartbeat() {
+    const baseMode = MAV_MODE_FLAG_CUSTOM_MODE_ENABLED | (this.armed ? MAV_MODE_FLAG_SAFETY_ARMED : 0)
+    this.send(HEARTBEAT, { customMode: this.customMode, type: 2, autopilot: 3, baseMode, systemStatus: 4, mavlinkVersion: 3 })
   }
 
   private send(def: Parameters<typeof encodeFrame>[0], values: Record<string, number>) {
@@ -89,6 +104,15 @@ class FakeVehicle {
         param3: 0,
         param4: 0,
       })
+    } else if (frame.msgId === COMMAND_LONG.id && frame.fields.command === MAV_CMD_COMPONENT_ARM_DISARM) {
+      if (!this.rejectArm) this.armed = frame.fields.param1 === 1
+      this.send(COMMAND_ACK, {
+        command: MAV_CMD_COMPONENT_ARM_DISARM,
+        result: this.rejectArm ? 4 /* MAV_RESULT_FAILED */ : MAV_RESULT_ACCEPTED,
+      })
+    } else if (frame.msgId === SET_MODE.id) {
+      this.customMode = frame.fields.customMode
+      this.sendCurrentStateHeartbeat()
     }
     // MISSION_ACK from the GCS (closing a download) needs no response.
   }
@@ -163,6 +187,49 @@ describe('MavlinkSession + FakeVehicle', () => {
   })
 })
 
+describe('MavlinkSession.armDisarm', () => {
+  it('resolves once the vehicle COMMAND_ACKs the arm request', async () => {
+    const { session } = setUp()
+    await expect(session.armDisarm(true)).resolves.toBeUndefined()
+  })
+
+  it('resolves for a disarm request the same way', async () => {
+    const { session } = setUp()
+    await session.armDisarm(true)
+    await expect(session.armDisarm(false)).resolves.toBeUndefined()
+  })
+
+  it('rejects with the MAV_RESULT code when the vehicle refuses to arm (e.g. a failed pre-arm check)', async () => {
+    const { vehicle, session } = setUp()
+    vehicle.rejectArm = true
+    await expect(session.armDisarm(true)).rejects.toThrow(/rejected the arm request.*MAV_RESULT code 4/i)
+  })
+})
+
+describe('MavlinkSession.setFlightMode', () => {
+  it('resolves once the vehicle heartbeat reflects the new custom_mode (alt-hold)', async () => {
+    const { session } = setUp()
+    await session.setFlightMode('alt-hold')
+    expect(session.getTelemetry().flightMode).toBe('Alt Hold')
+  })
+
+  it('resolves for auto (Resume) the same way', async () => {
+    const { session } = setUp()
+    await session.setFlightMode('auto')
+    expect(session.getTelemetry().flightMode).toBe('Auto')
+  })
+
+  it('times out if the vehicle never reflects the requested mode', async () => {
+    vi.useFakeTimers()
+    const session = new MavlinkSession(async () => {}) // a "vehicle" that never responds
+    const promise = session.setFlightMode('land')
+    const assertion = expect(promise).rejects.toThrow(/timed out/i)
+    await vi.advanceTimersByTimeAsync(5001)
+    await assertion
+    vi.useRealTimers()
+  })
+})
+
 describe('MavlinkSession telemetry decoding', () => {
   function sendFromVehicle(session: MavlinkSession, def: Parameters<typeof encodeFrame>[0], values: Record<string, number>) {
     const frame = encodeFrame(def, values, { sysid: VEHICLE_SYSID, compid: VEHICLE_COMPID, seq: 0 })
@@ -189,6 +256,16 @@ describe('MavlinkSession telemetry decoding', () => {
     const { session } = setUp()
     sendFromVehicle(session, HEARTBEAT, { customMode: 5, type: 2, autopilot: 3, baseMode: 0, systemStatus: 4, mavlinkVersion: 3 })
     expect(session.getTelemetry().flightMode).toBeNull()
+  })
+
+  it('decodes the armed flag from HEARTBEAT.base_mode', () => {
+    const { session } = setUp()
+    // 217 = 0b11011001 has bit 7 (MAV_MODE_FLAG_SAFETY_ARMED) set.
+    sendFromVehicle(session, HEARTBEAT, { customMode: 0, type: 2, autopilot: 3, baseMode: 217, systemStatus: 4, mavlinkVersion: 3 })
+    expect(session.getTelemetry().armed).toBe(true)
+    // 89 = 0b01011001 does not.
+    sendFromVehicle(session, HEARTBEAT, { customMode: 0, type: 2, autopilot: 3, baseMode: 89, systemStatus: 4, mavlinkVersion: 3 })
+    expect(session.getTelemetry().armed).toBe(false)
   })
 
   it('decodes SYS_STATUS battery voltage/remaining, normalizing the -1 "unknown" sentinel to null', () => {

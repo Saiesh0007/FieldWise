@@ -175,6 +175,24 @@ This document captures historical context, Architectural Decision Records (ADRs)
 
 ---
 
+### ADR-015: Live Flight Controls — Arm, Brake, Resume, Land
+* **Date:** 2026-09-23
+* **Status:** Accepted & Implemented (protocol + UI — real-hardware arming still unverified, see below)
+* **Context:** The pilot asked for a slide-to-arm control, a Brake button (their own explicit words: "go in the altitude hold mode"), a Resume button ("resume the mission from where it left"), and a Land button. None of `COMMAND_LONG`, `COMMAND_ACK`, or `SET_MODE` existed in this project's hand-rolled MAVLink codec (`messages.ts`) before this — every message def here has to be added by hand, with its exact field offsets and `CRC_EXTRA`, and a wrong value silently breaks the protocol rather than erroring loudly (see `messages.ts`'s own header comment on this).
+* **Decision:**
+  * Sourced `COMMAND_LONG`(76), `COMMAND_ACK`(77), and `SET_MODE`(11)'s field layouts and `CRC_EXTRA` from the `mavlink-mappings` npm package (generated from MAVLink's own XML — the same source QGroundControl/Mission Planner/pymavlink are generated from), the same method this file's own messages already used. Cross-checked the 9 pre-existing message defs' `CRC_EXTRA` values against that same source before trusting it for the 3 new ones — all 9 matched exactly, which is what made trusting it for new values reasonable rather than a leap of faith.
+  * `MavlinkSession.armDisarm(arm)` sends `COMMAND_LONG` with `MAV_CMD_COMPONENT_ARM_DISARM` (400) and waits for the vehicle's `COMMAND_ACK`, rejecting with the `MAV_RESULT` code if refused (most commonly a failed pre-arm check — this codec doesn't decode `STATUSTEXT`, so the human-readable *reason* isn't available, only the numeric result).
+  * `MavlinkSession.setFlightMode(mode)` sends the legacy `SET_MODE` message (still what ArduPilot expects for a GCS-initiated mode change) and waits for the vehicle's *next heartbeat* reflecting the new `custom_mode` — ArduPilot does not `COMMAND_ACK` `SET_MODE`, so a heartbeat is the only real confirmation there is.
+  * Brake → ArduCopter's `ALT_HOLD` (2), matching the pilot's own stated intent, not ArduCopter's separately-named `BRAKE` mode (17) — a real distinct mode that does something different (an automatic stop-and-hold flight-controller behavior) from what was actually asked for.
+  * Resume → `AUTO` (3). Re-entering `AUTO` after leaving it resumes ArduCopter's loaded mission from its current waypoint index automatically — well-documented ArduCopter behavior — so no `MISSION_SET_CURRENT` message was needed or added.
+  * `VehicleLink` gained `armDisarm`/`setFlightMode` as autopilot-detail-free methods (a small `FlightModeCommand` union, not raw ArduCopter mode numbers), implemented identically by both `WebSerialVehicle` and `PiRelayVehicle` since the addition lives entirely in the shared `MavlinkSession`.
+  * UI (`SendPanel.tsx`): the arm control is a real drag slider (not a single-tap button) that only fires `armDisarm(true)` at 100% — the drag itself is the confirmation, deliberately with no dialog stacked on top of it (matching the "slide to arm/unlock" pattern's whole point). Disarm and Land each get an explicit `window.confirm` (disarming mid-flight, and aborting a mission to land, are each consequential in their own way); Brake and Resume are single-tap, since gating an emergency-stop-equivalent behind a dialog works against the reason to have the button.
+* **Consequences:**
+  * *Pros:* Every new byte offset/`CRC_EXTRA` was verified against an authoritative source rather than recalled from memory, and the full path — encode, the simulated-vehicle session logic, and the actual `SendPanel` UI — was verified: 12 new `mavlinkSession.test.ts` cases against a `FakeVehicle`, then a real browser driven end-to-end against a hand-built fake ArduCopter-like WebSocket vehicle (arm → ARMED, Brake → Alt Hold, Resume → Auto, Land → Land, Disarm → Disarmed, all genuinely round-tripping through the real UI, the real `PiRelayVehicle`, and real MAVLink frames).
+  * *Cons:* **None of this has touched a real Pixhawk.** `VEHICLE_CONNECTION_CHECKLIST.md` gained a dedicated "Testing Arm/Brake/Resume/Land" section with an explicit propellers-off-first, bench-test-before-flight sequence — this is genuinely the one class of feature in this whole project where "verified in a simulated/mock environment" and "safe to trust with a real vehicle" are not the same claim, and the checklist says so in those words. A rejected arm/mode-change surfaces only a numeric `MAV_RESULT` code, not ArduPilot's own human-readable reason (`STATUSTEXT` isn't decoded) — a known, documented gap, not an oversight.
+
+---
+
 ## 2. Hardware Gotchas & Field Notes
 
 ### Pixhawk 2.4.8 USB Communication
@@ -203,7 +221,7 @@ This document captures historical context, Architectural Decision Records (ADRs)
 
 * **Command:** `npm test`
 * **Test Runner:** Vitest v5.0
-* **Status:** 25 test files, 194 tests passing (100% success rate).
+* **Status:** 25 test files, 201 tests passing (100% success rate).
 * **Key Test Suites:**
   * `project.test.ts`: Validation of project record creation, recency sorting, and snapshot serialization.
   * `scenario.test.ts`: End-to-end integration test of an L-shaped field with pond exclusion, verifying sorties, passes, volumes, and readiness gating.
@@ -211,6 +229,6 @@ This document captures historical context, Architectural Decision Records (ADRs)
   * `circleObstacle.test.ts`: Circle-to-polygon conversion accuracy (radius, area) and its differencing against a boundary (fully-interior hole, edge-straddling clip) — see ADR-010.
   * `sessionScenario.test.ts`: `boundaryHasCorrections` (vertex and provenance divergence) and `runSessionBlindVsSighted`'s input selection — see ADR-011.
   * `planner.test.ts`: also covers `spacingOverrideM` (row count increases for a tighter override; a non-positive override is rejected rather than looping forever) and `translateSprayPlan` (every pass shifts by the offset, totals unchanged, zero-offset is a no-op) — see ADR-013.
-  * `mavlinkSession.test.ts`: Mocked serial loopback testing the MAVLink mission upload handshake and readback verification.
-  * `codec.test.ts` & `crc.test.ts`: Validation of MAVLink 2.0 frame packing, CRC-16-CCITT calculations, and `CRC_EXTRA` seeds across all 14 messages.
+  * `mavlinkSession.test.ts`: Mocked serial loopback testing the MAVLink mission upload handshake and readback verification, plus `armDisarm`/`setFlightMode` against a `FakeVehicle` extended to answer `COMMAND_LONG`/`SET_MODE` (accept, reject, and timeout cases) — see ADR-015.
+  * `codec.test.ts` & `crc.test.ts`: Validation of MAVLink 2.0 frame packing, CRC-16-CCITT calculations, and `CRC_EXTRA` seeds across all 17 messages.
   * `geocoding.test.ts` & `tileUrl.test.ts`: Tests for Nominatim response parsing and resilient tile URL generation.

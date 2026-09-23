@@ -9,8 +9,12 @@ sequences and a simulated vehicle — see `mavlinkSession.test.ts` and
 talking to a real Pixhawk. This checklist is how we close that gap.
 
 **Safety first:** no propellers attached, no battery connected. USB power
-from your laptop only. Never click any arm/flight action — this pass only
-uploads a mission and reads telemetry, it never arms or flies anything.
+from your laptop only. This pass is upload-mission-and-read-telemetry
+only — do not touch Arm, Brake, Resume, or Land while following this
+section. Those now exist in the app (Send to Vehicle → Flight controls)
+but need their own separate, much more careful pass — see "Testing
+Arm/Brake/Resume/Land" near the end of this file, which must not be
+attempted until everything in this section already passes cleanly.
 
 ## What you need
 
@@ -128,3 +132,71 @@ check first if it won't connect: is `serial-ws-bridge.mjs` actually
 still running on the Pi (SSH back in and check), and can this browser's
 machine actually reach the Pi's IP and port (same WiFi/LAN, no
 firewall blocking it)?
+
+## Testing Arm/Brake/Resume/Land
+
+**Do not start this section until the mission upload test above already
+passes cleanly.** These four buttons (Send to Vehicle → Flight
+controls) send real MAVLink commands — `MAV_CMD_COMPONENT_ARM_DISARM`
+and `SET_MODE` (Alt Hold / Auto / Land) — that a real flight controller
+will act on. Unlike the mission-upload pass above, this one is not safe
+to run with propellers attached at any point until every step below has
+been verified propeller-off, more than once, without a surprise.
+
+**What's been verified so far:** the MAVLink encoding/decoding for
+these commands (`COMMAND_LONG`, `COMMAND_ACK`, `SET_MODE` — byte
+offsets, field types, `CRC_EXTRA`) was cross-checked against the
+official `mavlink-mappings` package, the same generated-from-XML source
+QGroundControl/Mission Planner/pymavlink use — not recalled from
+memory. The session logic (`armDisarm`, `setFlightMode` in
+`mavlinkSession.ts`) is unit-tested against a simulated vehicle in
+`mavlinkSession.test.ts`, and the UI was driven through a real browser
+against a fake vehicle that answers exactly like ArduCopter does: slide
+to arm → ARMED, Brake → Alt Hold, Resume → Auto, Land → Land, Disarm →
+Disarmed. **None of that touched a real flight controller.** ArduPilot's
+actual pre-arm safety checks, its actual response timing, and whatever
+it does when a mode change is refused, are all real firmware behavior
+this can't reach without you and real hardware.
+
+### Step 1 — Propellers OFF, battery connected, bench test
+
+1. Remove every propeller. Confirm by looking, not by memory.
+2. Connect the battery (or USB power, whichever your board needs for
+   the arming checks to run).
+3. Connect in FieldWise as usual, confirm telemetry is live.
+4. **Slide to arm.** Expect the badge to flip to **ARMED** within a
+   couple of seconds, and you should hear the motors' arming tones (no
+   propellers, so nothing spins — just confirms the command landed).
+   - **If the vehicle refuses to arm:** the app will show an error
+     naming a MAV_RESULT code but not the human-readable reason — this
+     codec doesn't decode ArduPilot's STATUSTEXT messages yet. Check
+     another GCS (Mission Planner, QGroundControl) or the flight
+     controller's own logs for *why* (no GPS lock, bad compass
+     calibration, etc.) — that's expected troubleshooting, not
+     necessarily a bug in this app.
+5. **Disarm.** Confirm the badge returns to Disarmed.
+6. Re-arm, then click **Brake**. Expect the flight-mode badge to show
+   **Alt Hold** within a few seconds.
+7. Click **Resume**. Expect the badge to show **Auto**.
+   - If nothing loaded/mission is empty, ArduCopter may refuse to enter
+     Auto — that's correct, expected firmware behavior, not a FieldWise
+     bug. Upload a mission first (the section above) if you want to see
+     Auto actually engage.
+8. Click **Land**, confirm the dialog, expect the badge to show **Land**.
+9. Disarm again to end the bench test.
+
+### Step 2 — only after Step 1 is clean, repeat with propellers on
+
+Do this outdoors, on the ground, with the vehicle secured or someone
+physically ready to intervene, exactly like any other first-arm test
+with any GCS. Arm, immediately disarm (motors should not spin up at
+idle throttle while merely armed) — if anything unexpected happens,
+disarm immediately and stop; don't continue to Brake/Resume/Land until
+that's understood.
+
+### Step 3 — in flight (only once Steps 1 and 2 are fully trusted)
+
+This is standard "does my GCS's Loiter/Pause/RTL button work" testing —
+treat it exactly that cautiously, at a safe altitude, with a spotter,
+and a way to take back manual control (a real RC transmitter) at any
+moment. FieldWise is not a substitute for that.

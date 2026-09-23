@@ -46,6 +46,7 @@ FieldWise fundamentally alters this paradigm:
 | **Multi-Format Mission Export** | Exports missions to QGroundControl (`.plan`), Mission Planner (`.waypoints`), KML, GeoJSON, CSV, and printable handoff sheets. | `src/lib/export/*` |
 | **Direct Hardware Link** | MAVLink 2.0 communication engine, transport-agnostic — micro-USB via Web Serial, or a Raspberry Pi bridge (Pixhawk serial → WebSocket) for a no-telemetry-radio, SSH-only Pi setup. | `src/lib/vehicle/mavlink/*`, `webSerialVehicle.ts`, `piRelayVehicle.ts`, `bridge/` |
 | **Live Telemetry & Dashboard** | Displays GPS fix, satellites, HDOP, roll/pitch attitude dial, heading compass, battery V/%, altitude AGL, wind speed/direction, and drone center. | `src/components/panels/SendPanel.tsx`, `FieldMap.tsx` |
+| **Flight Controls (Arm/Brake/Resume/Land)** | Slide-to-arm (with a Disarm confirm once armed), Brake (Alt Hold), Resume (Auto — picks the mission back up from its current waypoint), and Land (confirm before sending) — real `MAV_CMD_COMPONENT_ARM_DISARM`/`SET_MODE` commands, not simulated. **Not yet verified against a real Pixhawk** — see `VEHICLE_CONNECTION_CHECKLIST.md`. | `SendPanel.tsx`, `mavlinkSession.ts`'s `armDisarm`/`setFlightMode` |
 
 ---
 
@@ -81,6 +82,7 @@ The application guides the operator through an intuitive 6-stage lifecycle repre
    - Connect Pixhawk flight controller via USB cable using Web Serial, or via a Raspberry Pi bridge over WebSocket if there's no telemetry radio and the Pi is only reachable over SSH.
    - Verify live telemetry (3D GPS lock, satellites, HDOP, Roll/Pitch artificial horizon, Heading compass, Battery, Altitude, Wind).
    - Upload waypoints directly to Pixhawk via MAVLink mission protocol and verify readback integrity.
+   - **Flight controls:** slide to arm, Brake (Alt Hold), Resume (Auto), Land — with a confirmation dialog before Disarm and Land.
 
 ---
 
@@ -91,8 +93,8 @@ The application guides the operator through an intuitive 6-stage lifecycle repre
 * **Mapping Engine:** MapLibre GL 6.10, custom vector tile and GeoJSON layers, custom `fwsat://` protocol.
 * **Geospatial Math & GIS:** `proj4` (Local Azimuthal Equidistant `aeqd`), `@turf/turf`, `polygon-clipping`.
 * **State Management & Storage:** Zustand 5.0 with synchronous atomic `recompute()` pipeline, IndexedDB (`fieldwise-projects`), Cache API (`fieldwise-satellite-tiles-v1`).
-* **Hardware & Protocols:** Web Serial API (`navigator.serial`) or a Raspberry Pi WebSocket bridge, custom TypeScript MAVLink 1.0/2.0 codec with 14 supported message definitions.
-* **Code Quality & Testing:** Vitest (25 suites, 194 tests passing), Oxlint.
+* **Hardware & Protocols:** Web Serial API (`navigator.serial`) or a Raspberry Pi WebSocket bridge, custom TypeScript MAVLink 1.0/2.0 codec with 17 supported message definitions.
+* **Code Quality & Testing:** Vitest (25 suites, 201 tests passing), Oxlint.
 
 ---
 

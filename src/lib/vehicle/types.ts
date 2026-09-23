@@ -35,6 +35,8 @@ export interface VehicleTelemetry {
   systemStatus: string | null
   /** From HEARTBEAT.custom_mode — ArduCopter mode name (see ARDUCOPTER_MODE_LABELS). Null until the first heartbeat arrives, or if custom_mode isn't enabled/recognized. */
   flightMode: string | null
+  /** From HEARTBEAT.base_mode's MAV_MODE_FLAG_SAFETY_ARMED bit. Null until the first heartbeat arrives. */
+  armed: boolean | null
   /** From SYS_STATUS — null until that message has been seen at least once (it's not sent on every heartbeat cycle by every autopilot). */
   battery: {
     voltageV: number | null
@@ -64,6 +66,7 @@ export const EMPTY_TELEMETRY: VehicleTelemetry = {
   attitude: null,
   systemStatus: null,
   flightMode: null,
+  armed: null,
   battery: null,
   altitudeM: null,
   headingDeg: null,
@@ -97,6 +100,9 @@ export interface VehicleLinkEvents {
   onLog: (message: string) => void
 }
 
+/** The three flight-mode changes Route Adjust's Brake/Resume/Land buttons command — kept as a small named set, not a raw ArduCopter mode number, so the UI and this interface stay autopilot-detail-free. */
+export type FlightModeCommand = 'alt-hold' | 'auto' | 'land'
+
 export interface VehicleLink {
   readonly kind: string
 
@@ -106,6 +112,11 @@ export interface VehicleLink {
 
   /** Uploads a mission (the standard MAVLink COUNT -> per-item REQUEST/ITEM handshake -> ACK), then downloads it back and diffs it against what was sent. */
   uploadAndVerifyMission(waypoints: MissionWaypoint[]): Promise<MissionUploadResult>
+
+  /** Arms or disarms via MAV_CMD_COMPONENT_ARM_DISARM, resolving only once the vehicle's COMMAND_ACK confirms it (rejects with the vehicle's reason otherwise — most commonly a failed pre-arm safety check). */
+  armDisarm(arm: boolean): Promise<void>
+  /** Brake ("alt-hold"), Resume ("auto" — resumes the loaded mission from its current waypoint), or Land. Resolves once the vehicle's own next HEARTBEAT reflects the new mode (ArduPilot doesn't ACK the legacy SET_MODE message), rejects on timeout if it never does. */
+  setFlightMode(mode: FlightModeCommand): Promise<void>
 
   onTelemetry(listener: VehicleLinkEvents['onTelemetry']): () => void
   onConnectionStateChange(listener: VehicleLinkEvents['onConnectionStateChange']): () => void
