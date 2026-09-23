@@ -218,6 +218,7 @@ function App() {
         <div className="flex-1 min-w-0">
           <FieldMap
             boundary={currentStep === 'simulate' ? null : boundary}
+            fieldLoaded={boundary !== null}
             noSprayZones={noSprayZones}
             sprayPlan={currentStep === 'simulate' ? null : sprayPlan}
             planSplitPercent={planSplitPercent}

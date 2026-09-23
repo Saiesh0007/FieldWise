@@ -104,7 +104,7 @@ export function SendPanel({ onCenterOnDrone }: SendPanelProps) {
   const [uploadResult, setUploadResult] = useState<MissionUploadResult | null>(null)
   const [uploadError, setUploadError] = useState<string | null>(null)
   const [armSliderValue, setArmSliderValue] = useState(0)
-  const [commandBusy, setCommandBusy] = useState<null | 'arm' | 'disarm' | 'brake' | 'resume' | 'land'>(null)
+  const [commandBusy, setCommandBusy] = useState<null | 'arm' | 'disarm' | 'brake' | 'resume' | 'land' | 'rtl'>(null)
   const [commandError, setCommandError] = useState<string | null>(null)
 
   useEffect(() => {
@@ -216,7 +216,7 @@ export function SendPanel({ onCenterOnDrone }: SendPanelProps) {
     }
   }
 
-  const handleSetMode = async (mode: FlightModeCommand, busyLabel: 'brake' | 'resume' | 'land') => {
+  const handleSetMode = async (mode: FlightModeCommand, busyLabel: 'brake' | 'resume' | 'land' | 'rtl') => {
     setCommandBusy(busyLabel)
     setCommandError(null)
     try {
@@ -231,6 +231,11 @@ export function SendPanel({ onCenterOnDrone }: SendPanelProps) {
   const handleLand = async () => {
     if (!window.confirm('Land the vehicle now? This ends whatever the mission was doing.')) return
     await handleSetMode('land', 'land')
+  }
+
+  const handleRtl = async () => {
+    if (!window.confirm('Return the vehicle to the launch point now? This ends whatever the mission was doing.')) return
+    await handleSetMode('rtl', 'rtl')
   }
 
   return (
@@ -448,7 +453,7 @@ export function SendPanel({ onCenterOnDrone }: SendPanelProps) {
             </div>
           )}
 
-          <div className="grid grid-cols-3 gap-2">
+          <div className="grid grid-cols-2 gap-2">
             <Button size="sm" variant="secondary" disabled={commandBusy !== null} onClick={() => void handleSetMode('alt-hold', 'brake')}>
               {commandBusy === 'brake' && <Spinner />}
               Brake
@@ -457,14 +462,20 @@ export function SendPanel({ onCenterOnDrone }: SendPanelProps) {
               {commandBusy === 'resume' && <Spinner />}
               Resume
             </Button>
+            <Button size="sm" variant="danger" disabled={commandBusy !== null} onClick={() => void handleRtl()}>
+              {commandBusy === 'rtl' && <Spinner />}
+              RTL
+            </Button>
             <Button size="sm" variant="danger" disabled={commandBusy !== null} onClick={() => void handleLand()}>
               {commandBusy === 'land' && <Spinner />}
               Land
             </Button>
           </div>
           <p className="text-xs text-(--text-muted)">
-            Brake holds altitude in place (Alt Hold). Resume picks the loaded mission back up from wherever it left
-            off (Auto). Land begins landing immediately.
+            Brake holds altitude in place (Alt Hold) — a manual, single-tap way to stop the mission where it stands.
+            Resume picks it back up from wherever it left off (Auto). RTL flies back to and lands at the launch
+            point — the mission itself no longer scripts a return, so use RTL to bring the vehicle home. Land begins
+            landing immediately, wherever it is.
           </p>
 
           {commandError && <p className="text-xs text-danger">{commandError}</p>}

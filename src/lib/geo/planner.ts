@@ -166,19 +166,35 @@ export function translateSprayPlan(plan: SprayPlan, offset: LocalPoint): SprayPl
 }
 
 /**
- * The mission's actual start point — where the flight path begins (the
- * first pass's start point), not necessarily the boundary's first
- * vertex. Null for an empty plan (e.g. a fully-excluded field).
+ * The mission's actual start point — where spraying begins (the first
+ * *spraying* pass's start point), not the launch/refill point. Every
+ * sortie opens with a non-spraying transit leg out from the home point
+ * (`splitIntoSorties` in droneProfile.ts), so taking the literal first
+ * pass here would return the home point instead — which is also the
+ * literal *last* pass's end point (every sortie closes with a transit
+ * leg back to home for refill accounting), making Start and Finish
+ * collapse onto the same coordinate for every plan. Skipping to the
+ * first/last spraying pass gives the actual route's endpoints, which is
+ * what AeroGCS Green's Start/Finish markers show. Null for an empty plan
+ * (e.g. a fully-excluded field).
  */
 export function planStartPoint(plan: SprayPlan): LocalPoint | null {
-  return plan.sorties[0]?.passes[0]?.start ?? null
+  for (const sortie of plan.sorties) {
+    const firstSpray = sortie.passes.find((p) => p.spraying)
+    if (firstSpray) return firstSpray.start
+  }
+  return null
 }
 
-/** The mission's actual finish point — the last pass's end point, in the last sortie. Null for an empty plan. */
+/** The mission's actual finish point — the last *spraying* pass's end point. See `planStartPoint` for why this skips trailing transit-home legs. Null for an empty plan. */
 export function planFinishPoint(plan: SprayPlan): LocalPoint | null {
-  const lastSortie = plan.sorties[plan.sorties.length - 1]
-  const lastPass = lastSortie?.passes[lastSortie.passes.length - 1]
-  return lastPass?.end ?? null
+  for (let i = plan.sorties.length - 1; i >= 0; i--) {
+    const passes = plan.sorties[i].passes
+    for (let j = passes.length - 1; j >= 0; j--) {
+      if (passes[j].spraying) return passes[j].end
+    }
+  }
+  return null
 }
 
 export interface PlanSplit {

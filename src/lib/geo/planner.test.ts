@@ -284,17 +284,27 @@ describe('planStartPoint / planFinishPoint', () => {
     { x: 0, y: 100 },
   ]
 
-  it('returns the first pass\'s start and the last pass\'s end', () => {
+  it('returns the first spraying pass\'s start and the last spraying pass\'s end — not the transit legs to/from home', () => {
     const plan = planSprayPath({
       boundaryLocal: square,
       noSprayZonesLocal: [],
       droneProfile: profile(),
       sweepStrategy: { kind: 'fixed-heading', headingDeg: 0 },
     })
-    const allPasses = plan.sorties.flatMap((s) => s.passes)
+    const sprayingPasses = plan.sorties.flatMap((s) => s.passes).filter((p) => p.spraying)
 
-    expect(planStartPoint(plan)).toEqual(allPasses[0].start)
-    expect(planFinishPoint(plan)).toEqual(allPasses[allPasses.length - 1].end)
+    expect(planStartPoint(plan)).toEqual(sprayingPasses[0].start)
+    expect(planFinishPoint(plan)).toEqual(sprayingPasses[sprayingPasses.length - 1].end)
+  })
+
+  it('start and finish are never the same point when the route actually spans more than one row — every sortie is bookended by a transit leg to/from home, which would otherwise make both collapse onto the home point', () => {
+    const plan = planSprayPath({
+      boundaryLocal: square,
+      noSprayZonesLocal: [],
+      droneProfile: profile(),
+      sweepStrategy: { kind: 'fixed-heading', headingDeg: 0 },
+    })
+    expect(planStartPoint(plan)).not.toEqual(planFinishPoint(plan))
   })
 
   it('returns null for an empty plan', () => {

@@ -213,7 +213,7 @@ The planning algorithm executes in local metric space:
 2. **Scanline Even-Odd Slicing:** Evaluates intersections between horizontal row lines and polygon boundary edges, handling concave fields and internal holes automatically.
 3. **Sortie Partitioning (`droneProfile.ts`):** Accumulates chemical volume consumed ($A_{\text{ha}} \times \text{Rate}_{\text{L/ha}}$) and flight time ($\frac{\text{Distance}}{\text{Speed}} + \text{Turns} \times \text{TurnPenalty}$). A new sortie break is inserted whenever the accumulated load approaches `tankL` or time approaches `enduranceMin`.
 4. **Move Plan (`translateSprayPlan`):** A pure post-processing translation of every pass's `start`/`end` by a fixed local-meter offset — applied once, after the plan is otherwise complete, so it never affects row placement, sortie splitting, or totals (distance/volume/area are all translation-invariant). See Memory.md ADR-013 for why this is a separate post-processing step rather than a `planSprayPath` input.
-5. **Start/Finish (`planStartPoint`/`planFinishPoint`) & Plan Splitting (`splitPlanPasses`):** The mission's actual flight-path start and finish are simply the first pass's `start` and the last pass's `end`, read straight off the finished plan — not a separate computation, and not the same point as the boundary's first vertex. Rendered as two `maplibre-gl` DOM `Marker`s (not a GeoJSON symbol layer — no glyphs server in this project's map style), nudged apart on-screen when within 12m of each other so a path that finishes near its own start (a common boustrophedon outcome) never has one marker silently hidden under the other. Plan Splitting marks a prefix, a suffix, or symmetric prefix+suffix chunks (`PlanSplitDirection`: `'from-start' | 'from-end' | 'from-both'`) of the plan's passes (flattened across every sortie, in flight order) as "included" by pass-count percentage — a pure filter over the finished plan, like Move Plan, so it composes with everything else and never touches `planSprayPath` itself. Rendered with AeroGCS Green's own convention: included/intended route in yellow, excluded/deferred portion as a wide semi-transparent blue overlay. See Memory.md ADR-016 and ADR-017.
+5. **Start/Finish (`planStartPoint`/`planFinishPoint`) & Plan Splitting (`splitPlanPasses`):** The mission's actual start and finish are the first and last *spraying* pass's `start`/`end` — not simply the first/last pass in flight order. That distinction matters: `splitIntoSorties` (`droneProfile.ts`) always opens a sortie with a non-spraying transit leg out from the home/refill point and closes it with one back to home (needed for correct distance/time accounting), so the literal first and last pass are always those two transit legs, both landing on the home point — which would make Start and Finish collapse onto the same coordinate for every plan, not just occasionally. Skipping to the first/last *spraying* pass gives the route's real endpoints instead. Rendered as two `maplibre-gl` DOM `Marker`s (not a GeoJSON symbol layer — no glyphs server in this project's map style); a 12m nudge-apart-when-coincident safeguard remains from ADR-017 but is no longer structurally reachable for any plan with real route length. `sprayPlanToWaypoints` (`missionFromPlan.ts`) mirrors the same fix on the upload side — it trims the same bookending transit legs before building the waypoint list, so the uploaded mission's last waypoint is the real last spray point, not home; getting the vehicle home is now RTL's job (a dedicated flight-control button), not something the mission auto-scripts. Plan Splitting marks a prefix, a suffix, or symmetric prefix+suffix chunks (`PlanSplitDirection`: `'from-start' | 'from-end' | 'from-both'`) of the plan's passes (flattened across every sortie, in flight order) as "included" by pass-count percentage — a pure filter over the finished plan, like Move Plan, so it composes with everything else and never touches `planSprayPath` itself. Rendered with AeroGCS Green's own convention: included/intended route in yellow, excluded/deferred portion as a wide semi-transparent blue overlay. See Memory.md ADR-016, ADR-017, and ADR-018.
 
 ### 2.4. Hard Readiness Safety Gate (`readiness.ts`)
 The readiness engine enforces the mission clearance rule:
@@ -267,10 +267,10 @@ When `HEARTBEAT.baseMode` includes `MAV_MODE_FLAG_CUSTOM_MODE_ENABLED` (bit 0), 
 
 The `armed` flag decodes the same field's bit 7 (`MAV_MODE_FLAG_SAFETY_ARMED`, `0b10000000`) — independent of which custom mode is active.
 
-### 3.5. Flight Command Flow (Arm/Brake/Resume/Land)
+### 3.5. Flight Command Flow (Arm/Brake/Resume/RTL/Land)
 Two request/confirmation shapes, depending on whether ArduPilot ACKs the message type:
 ```
-Arm/Disarm:                              Mode change (Brake/Resume/Land):
+Arm/Disarm:                              Mode change (Brake/Resume/RTL/Land):
   COMMAND_LONG                             SET_MODE
   (command=MAV_CMD_COMPONENT_ARM_DISARM,   (custom_mode=target, base_mode=
    param1=1|0)                             CUSTOM_MODE_ENABLED)
@@ -289,7 +289,10 @@ intent for that button — not ArduCopter's distinctly-named `BRAKE` mode
 (17), which is a different, automatic stop-and-hold behavior. Resume →
 `ARDUCOPTER_MODE_AUTO` (3); re-entering `AUTO` resumes ArduCopter's
 loaded mission from its current waypoint automatically, so no
-`MISSION_SET_CURRENT` message is sent. Land → `ARDUCOPTER_MODE_LAND` (9).
+`MISSION_SET_CURRENT` message is sent. RTL → `ARDUCOPTER_MODE_RTL` (6) —
+ArduCopter's own auto-return-and-land, the pilot's deliberate way home
+now that the uploaded mission no longer scripts a return leg itself (see
+Memory.md ADR-018). Land → `ARDUCOPTER_MODE_LAND` (9).
 See Memory.md ADR-015 for why these two request shapes differ and what's
 still unverified against real hardware.
 

@@ -38,7 +38,7 @@ FieldWise fundamentally alters this paradigm:
 | **Local Metric Projection** | Projects WGS84 geographic coordinates to an accurate local Azimuthal Equidistant metric space centered on the field. | `src/lib/geo/projection.ts` using `proj4` (`+proj=aeqd`) |
 | **Swath & Sortie Planner** | Boustrophedon sweep planning with scanline even-odd slicing, heading optimization, transit connectors, and sortie constraints. | `src/lib/geo/planner.ts`, `droneProfile.ts` |
 | **Manual Plan Editing (AeroGCS Green §11, mostly done)** | Adjust Spacing (row-spacing override, 2–10m), Route Adjust (heading angle slider + Head Lock toggle), Move Plan (nudge the generated plan by an accumulated offset, independent of the boundary), and Plan Splitting — three directions (from start, from end, or both sides at once), matching AeroGCS Green's own yellow-intended/blue-excluded coloring, with Upload mission actually sending only the included subset when a split is active. | `PlanPanel.tsx`, `src/lib/geo/planner.ts`'s `translateSprayPlan`/`splitPlanPasses`, `missionFromPlan.ts` |
-| **Start & Finish Points + Live Mission Progress** | The mission's actual flight-path start/finish (not the boundary's first vertex) render as matching green map markers labeled "S"/"F" (nudged apart if the route happens to start and end near the same spot); Send to Vehicle shows a live progress bar and a "mission 100% complete" banner once the vehicle reports reaching the last uploaded waypoint. | `planner.ts`'s `planStartPoint`/`planFinishPoint`, `FieldMap.tsx`, `mavlinkSession.ts` (`MISSION_ITEM_REACHED`) |
+| **Start & Finish Points + Live Mission Progress** | The mission's actual spray-route start/finish (the first and last *spraying* pass, skipping the transit legs to/from home — not the boundary's first vertex, and never the home point itself) render as matching green map markers labeled "S"/"F". Send to Vehicle shows a live progress bar and a "mission 100% complete" banner once the vehicle reports reaching the last uploaded waypoint. | `planner.ts`'s `planStartPoint`/`planFinishPoint`, `FieldMap.tsx`, `mavlinkSession.ts` (`MISSION_ITEM_REACHED`) |
 | **Hard Safety Gate** | Evaluates plan readiness: blocks flight clearance and autopilot upload if unverified prior edges exist. | `src/lib/geo/readiness.ts` |
 | **Projects System & Autosave** | Local-first project management (create, rename, delete, recency sort) with debounced IndexedDB persistence. | `src/lib/storage/project.ts`, `projectDb.ts`, `useProjectAutosave.ts` |
 | **Resilient Map & Tile Cache** | Custom `fwsat://` protocol with Cache API storage, Esri placeholder detection, and automatic OpenStreetMap fallback. | `src/lib/map/resilientSatelliteTiles.ts`, `basemap.ts` |
@@ -47,7 +47,7 @@ FieldWise fundamentally alters this paradigm:
 | **Multi-Format Mission Export** | Exports missions to QGroundControl (`.plan`), Mission Planner (`.waypoints`), KML, GeoJSON, CSV, and printable handoff sheets. | `src/lib/export/*` |
 | **Direct Hardware Link** | MAVLink 2.0 communication engine, transport-agnostic — micro-USB via Web Serial, or a Raspberry Pi bridge (Pixhawk serial → WebSocket) for a no-telemetry-radio, SSH-only Pi setup. | `src/lib/vehicle/mavlink/*`, `webSerialVehicle.ts`, `piRelayVehicle.ts`, `bridge/` |
 | **Live Telemetry & Dashboard** | Displays GPS fix, satellites, HDOP, roll/pitch attitude dial, heading compass, battery V/%, altitude AGL, wind speed/direction, and drone center. | `src/components/panels/SendPanel.tsx`, `FieldMap.tsx` |
-| **Flight Controls (Arm/Brake/Resume/Land)** | Slide-to-arm (with a Disarm confirm once armed), Brake (Alt Hold), Resume (Auto — picks the mission back up from its current waypoint), and Land (confirm before sending) — real `MAV_CMD_COMPONENT_ARM_DISARM`/`SET_MODE` commands, not simulated. **Not yet verified against a real Pixhawk** — see `VEHICLE_CONNECTION_CHECKLIST.md`. | `SendPanel.tsx`, `mavlinkSession.ts`'s `armDisarm`/`setFlightMode` |
+| **Flight Controls (Arm/Brake/Resume/RTL/Land)** | Slide-to-arm (with a Disarm confirm once armed), Brake (Alt Hold — manual, single-tap mission stop), Resume (Auto — picks the mission back up from its current waypoint), RTL (confirm before sending — flies back to and lands at the launch point; the uploaded mission no longer scripts this automatically, see Plan Splitting/Send below), and Land (confirm before sending) — real `MAV_CMD_COMPONENT_ARM_DISARM`/`SET_MODE` commands, not simulated. **Not yet verified against a real Pixhawk** — see `VEHICLE_CONNECTION_CHECKLIST.md`. | `SendPanel.tsx`, `mavlinkSession.ts`'s `armDisarm`/`setFlightMode` |
 
 ---
 
@@ -73,7 +73,7 @@ The application guides the operator through an intuitive 6-stage lifecycle repre
    - **Adjust Spacing** — override the profile-derived row spacing directly (2–10m).
    - **Move Plan** — nudge the entire generated plan by a directional offset, independent of the boundary.
    - **Plan Splitting** — mark the first/last N% of the route as this sortie's included portion (excluded rest drawn in blue), to plan around battery limits across multiple sorties.
-   - **Start & Finish** points — the flight path's actual beginning and end (not the boundary's first vertex) marked distinctly on the map.
+   - **Start & Finish** points — the spray route's actual beginning and end (skipping the transit legs to/from the home point, and never the boundary's first vertex or the home point itself) marked distinctly on the map.
    - Real-time display of total passes, flight distance, chemical volume, flight duration, and sortie counts.
 4. **Simulate:**
    - Interactive replay showing the spray drone traversing passes.
@@ -84,8 +84,8 @@ The application guides the operator through an intuitive 6-stage lifecycle repre
 6. **Send to Vehicle:**
    - Connect Pixhawk flight controller via USB cable using Web Serial, or via a Raspberry Pi bridge over WebSocket if there's no telemetry radio and the Pi is only reachable over SSH.
    - Verify live telemetry (3D GPS lock, satellites, HDOP, Roll/Pitch artificial horizon, Heading compass, Battery, Altitude, Wind).
-   - Upload waypoints directly to Pixhawk via MAVLink mission protocol and verify readback integrity — honors Plan Splitting, uploading only the included subset when a split is active.
-   - **Flight controls:** slide to arm, Brake (Alt Hold), Resume (Auto), Land — with a confirmation dialog before Disarm and Land.
+   - Upload waypoints directly to Pixhawk via MAVLink mission protocol and verify readback integrity — honors Plan Splitting, uploading only the included subset when a split is active. The uploaded mission ends at the route's actual last spray waypoint, not an automatic return-to-home leg — bringing the vehicle home is RTL's job, not the mission's.
+   - **Flight controls:** slide to arm, Brake (Alt Hold), Resume (Auto), RTL (return to and land at launch), Land — with a confirmation dialog before Disarm, RTL, and Land.
    - **Live mission progress:** a progress bar and a "Finish point reached — mission 100% complete" banner once the vehicle reports reaching the last uploaded waypoint.
 
 ---
@@ -98,7 +98,7 @@ The application guides the operator through an intuitive 6-stage lifecycle repre
 * **Geospatial Math & GIS:** `proj4` (Local Azimuthal Equidistant `aeqd`), `@turf/turf`, `polygon-clipping`.
 * **State Management & Storage:** Zustand 5.0 with synchronous atomic `recompute()` pipeline, IndexedDB (`fieldwise-projects`), Cache API (`fieldwise-satellite-tiles-v1`).
 * **Hardware & Protocols:** Web Serial API (`navigator.serial`) or a Raspberry Pi WebSocket bridge, custom TypeScript MAVLink 1.0/2.0 codec with 17 supported message definitions.
-* **Code Quality & Testing:** Vitest (26 suites, 214 tests passing), Oxlint.
+* **Code Quality & Testing:** Vitest (26 suites, 217 tests passing), Oxlint.
 
 ---
 

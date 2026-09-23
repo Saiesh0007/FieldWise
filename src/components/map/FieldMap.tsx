@@ -76,6 +76,14 @@ const MIN_TRACE_POINT_GAP_M = 2.5
 
 interface FieldMapProps {
   boundary: FieldBoundary | null
+  /**
+   * Whether a field is actually loaded, independent of `boundary` — the
+   * Simulate step passes `boundary={null}` so the live editable boundary
+   * layer doesn't render underneath the replay overlay, but a field is
+   * still loaded. Defaults to `!!boundary` for every other step, where
+   * the two are the same thing.
+   */
+  fieldLoaded?: boolean
   noSprayZones: NoSprayZone[]
   sprayPlan: SprayPlan | null
   /** Plan Splitting (§11.8) — what fraction of the route (and from which end, or both) to mark included; 100 (default) draws the whole plan with no split highlight. */
@@ -235,6 +243,7 @@ export function FieldMap({
   boundary,
   noSprayZones,
   sprayPlan,
+  fieldLoaded = boundary !== null,
   planSplitPercent = 100,
   planSplitDirection = 'from-start',
   projection,
@@ -1274,7 +1283,7 @@ export function FieldMap({
     setData(map, SOURCE.walkTrace, walkTrace.length >= 2 ? latLngLineFeature(walkTrace) : EMPTY_FEATURE_COLLECTION)
   }, [correctionTarget, pilotPosition, accuracyM, walkTrace, loaded])
 
-  const showGetStarted = !boundary && !simulateOverlay && !drawTarget && !droneCaptureActive && liveWalkPath.length === 0
+  const showGetStarted = !fieldLoaded && !simulateOverlay && !drawTarget && !droneCaptureActive && liveWalkPath.length === 0
 
   return (
     <div className="relative h-full w-full">

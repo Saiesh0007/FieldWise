@@ -16,6 +16,7 @@ import {
   ARDUCOPTER_MODE_AUTO,
   ARDUCOPTER_MODE_LABELS,
   ARDUCOPTER_MODE_LAND,
+  ARDUCOPTER_MODE_RTL,
   ATTITUDE,
   COMMAND_ACK,
   COMMAND_LONG,
@@ -51,6 +52,7 @@ const FLIGHT_MODE_CUSTOM_NUMBER: Record<FlightModeCommand, number> = {
   'alt-hold': ARDUCOPTER_MODE_ALT_HOLD,
   auto: ARDUCOPTER_MODE_AUTO,
   land: ARDUCOPTER_MODE_LAND,
+  rtl: ARDUCOPTER_MODE_RTL,
 }
 
 // Our (the GCS's) own MAVLink identity. 255 is the conventional GCS
@@ -267,9 +269,10 @@ export class MavlinkSession {
 
   /**
    * Brake (alt-hold), Resume (auto — picks the mission back up from its
-   * current waypoint), or Land. ArduPilot doesn't COMMAND_ACK the legacy
-   * SET_MODE message, so the only real confirmation is the vehicle's own
-   * next heartbeat reporting the new custom_mode.
+   * current waypoint), Land, or RTL (auto-return to and land at the
+   * launch point). ArduPilot doesn't COMMAND_ACK the legacy SET_MODE
+   * message, so the only real confirmation is the vehicle's own next
+   * heartbeat reporting the new custom_mode.
    */
   async setFlightMode(mode: FlightModeCommand): Promise<void> {
     const customMode = FLIGHT_MODE_CUSTOM_NUMBER[mode]

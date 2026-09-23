@@ -41,16 +41,43 @@ describe('sprayPlanToWaypoints', () => {
     expect(sprayPlanToWaypoints([], projection, 3)).toEqual([])
   })
 
-  it('does not deduplicate a start that only coincidentally matches the previous end at a later, non-adjacent pass', () => {
-    // Two disjoint passes that happen to return to the same point — a real
-    // boustrophedon pattern with a shared transit-back point, not adjacent
-    // in a way that should merge; still exercises the same-point check per adjacent pair only.
+  it('does not deduplicate a start that only coincidentally matches an earlier end at a later, non-adjacent pass', () => {
+    // A spray leg loops back through a point it already visited (a real
+    // boustrophedon pattern with a shared transit-back point) — that
+    // shared coordinate isn't adjacent in the list, so it must not be
+    // collapsed away; only adjacent (previous-end === this-start) pairs
+    // are deduplicated. The loop-back leg sits strictly between two
+    // spraying legs, not at either end, so trimming doesn't touch it.
     const loopingPasses: SprayPass[] = [
       { start: { x: 0, y: 0 }, end: { x: 50, y: 0 }, spraying: true },
       { start: { x: 50, y: 0 }, end: { x: 0, y: 0 }, spraying: false },
+      { start: { x: 0, y: 0 }, end: { x: 25, y: 0 }, spraying: true },
     ]
     const waypoints = sprayPlanToWaypoints(loopingPasses, projection, 3)
-    // start(0,0) -> end(50,0)==next start(50,0) merged -> end(0,0): 3 distinct points.
-    expect(waypoints).toHaveLength(3)
+    // (0,0) -> (50,0)==next start, merged -> (0,0) [revisited, not merged since non-adjacent] -> (25,0): 4 distinct points.
+    expect(waypoints).toHaveLength(4)
+  })
+
+  it('drops a leading and/or trailing run of transit-only passes — the out-from-home and return-to-home legs every sortie is bookended with', () => {
+    // splitIntoSorties always opens a sortie with a transit leg from the
+    // home/refill point and closes it with one back to home; uploading
+    // those as real waypoints would make the mission auto-fly home at
+    // the end, which is now RTL's job (a deliberate pilot action), not
+    // something scripted into the route.
+    const withHomeLegs: SprayPass[] = [
+      { start: { x: -20, y: -20 }, end: { x: 0, y: 0 }, spraying: false }, // out from home
+      { start: { x: 0, y: 0 }, end: { x: 100, y: 0 }, spraying: true },
+      { start: { x: 100, y: 0 }, end: { x: -20, y: -20 }, spraying: false }, // back to home
+    ]
+    const waypoints = sprayPlanToWaypoints(withHomeLegs, projection, 3)
+
+    expect(waypoints).toHaveLength(2)
+    expect(waypoints[0].position.lat).toBeCloseTo(projection.toLatLng({ x: 0, y: 0 }).lat, 9)
+    expect(waypoints[1].position.lat).toBeCloseTo(projection.toLatLng({ x: 100, y: 0 }).lat, 9)
+  })
+
+  it('returns an empty list when every pass is a transit leg (nothing to spray this subset)', () => {
+    const onlyTransit: SprayPass[] = [{ start: { x: 0, y: 0 }, end: { x: 10, y: 0 }, spraying: false }]
+    expect(sprayPlanToWaypoints(onlyTransit, projection, 3)).toEqual([])
   })
 })

@@ -338,14 +338,18 @@ export const MAV_MODE_FLAG_SAFETY_ARMED = 0b10000000
 
 /**
  * ArduCopter's flight-mode numbers (HEARTBEAT.custom_mode / SET_MODE's
- * target) for the three modes Route Adjust's Brake/Resume/Land buttons
+ * target) for the modes Route Adjust's Brake/Resume/Land/RTL buttons
  * command. Re-entering AUTO after leaving it resumes the loaded mission
  * from its current waypoint index automatically — ArduCopter's own
  * documented behavior — so "Resume" needs no MISSION_SET_CURRENT, just
- * this mode change.
+ * this mode change. RTL is ArduCopter's own auto-return-and-land, used
+ * as the deliberate, pilot-initiated way back to the launch point — the
+ * mission itself is no longer scripted to fly home automatically (see
+ * missionFromPlan.ts).
  */
 export const ARDUCOPTER_MODE_ALT_HOLD = 2
 export const ARDUCOPTER_MODE_AUTO = 3
+export const ARDUCOPTER_MODE_RTL = 6
 export const ARDUCOPTER_MODE_LAND = 9
 
 // MAV_TYPE / MAV_AUTOPILOT / MAV_STATE — used for the heartbeat we (the GCS) send.
