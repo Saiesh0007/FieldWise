@@ -172,7 +172,13 @@ export function SendPanel({ onCenterOnDrone }: SendPanelProps) {
       // deferred to a later battery, not sent at all. At 100% (the
       // default) `included` is every pass, so this is a no-op.
       const waypoints = sprayPlanToWaypoints(uploadSplit.included, projection, droneProfile.altitudeM)
-      const result = await vehicle.uploadAndVerifyMission(waypoints)
+      // ArduPilot's mission protocol reserves item seq 0 for the home
+      // position (see mavlinkSession.ts's uploadAndVerifyMission) — the
+      // same home point splitIntoSorties uses for refill transit legs,
+      // so a Move Plan offset is reflected here too.
+      const homeLocal = sprayPlan.sorties[0]?.passes[0]?.start
+      const homePosition = homeLocal ? projection.toLatLng(homeLocal) : boundary.vertices[0]
+      const result = await vehicle.uploadAndVerifyMission(waypoints, homePosition)
       setUploadResult(result)
     } catch (err) {
       setUploadError(err instanceof Error ? err.message : 'Mission upload failed.')
@@ -512,14 +518,19 @@ export function SendPanel({ onCenterOnDrone }: SendPanelProps) {
         )}
 
         {uploadResult && telemetry.lastReachedWaypointSeq !== null && (() => {
+          // telemetry.lastReachedWaypointSeq is a wire seq — 0 is the
+          // synthetic home item (see mavlinkSession.ts's
+          // uploadAndVerifyMission), and the real route occupies wire
+          // seq 1..total, so it already counts "legs completed" directly
+          // without the +1 this used before that item existed.
           const total = uploadResult.uploadedCount
-          const reached = Math.min(telemetry.lastReachedWaypointSeq, total - 1)
-          const pct = total > 0 ? ((reached + 1) / total) * 100 : 0
-          const complete = reached >= total - 1
+          const reached = Math.max(0, Math.min(telemetry.lastReachedWaypointSeq, total))
+          const pct = total > 0 ? (reached / total) * 100 : 0
+          const complete = reached >= total
           return (
             <div className="space-y-1.5">
               <div className="flex items-center justify-between text-xs text-(--text-secondary)">
-                <span>Mission progress — waypoint {reached + 1} of {total}</span>
+                <span>Mission progress — waypoint {reached} of {total}</span>
                 <span>{pct.toFixed(0)}%</span>
               </div>
               <div className="h-2 overflow-hidden rounded-full bg-(--surface-panel-raised)">

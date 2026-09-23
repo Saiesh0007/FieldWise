@@ -107,6 +107,23 @@ The three most likely failure points, in order of probability:
    number mapping are the two values in that file I'm least certain of —
    see the comments in `webSerialVehicle.ts` for exactly which pieces
    came from verified data versus general protocol knowledge.
+4. **Only HEARTBEAT arrives — no Attitude, GPS, Battery, Altitude, or
+   Wind at all, even though Attitude needs nothing but the IMU** — this
+   isn't a FieldWise bug, it's ArduPilot's own telemetry stream rates for
+   that serial port (`SR2_*` params for TELEM2, `SR1_*` for TELEM1, etc.)
+   defaulting to 0 on a board/port that's never talked to a GCS before.
+   Connect once with Mission Planner or QGroundControl on the same link
+   to confirm data flows there, which also nudges ArduPilot into
+   streaming it going forward.
+5. **Mission upload/download completes with no error, but one item
+   (almost always wire seq 0) comes back with wildly different lat/lon
+   than what was sent** — expected, not a bug: ArduPilot reserves mission
+   item seq 0 for HOME and substitutes its own home position there
+   regardless of what was uploaded. FieldWise now sends a dedicated home
+   item at seq 0 and excludes it from verification (see Memory.md
+   ADR-021) — first found and fixed against exactly this symptom on real
+   hardware, where the substituted value read back as effectively (0, 0)
+   since the vehicle had no GPS fix yet.
 
 Either way — screenshot or copy the log panel's contents and the
 status badge's state, and we can fix it from there.

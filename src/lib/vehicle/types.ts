@@ -95,10 +95,11 @@ export interface MissionWaypoint {
 }
 
 export interface MissionUploadResult {
+  /** The number of real route waypoints sent — does not include the synthetic home item ArduPilot's mission protocol reserves seq 0 for (see `uploadAndVerifyMission`). */
   uploadedCount: number
-  /** The mission read back from the vehicle immediately after upload, for verification. */
+  /** The mission read back from the vehicle immediately after upload, for verification — includes the home item at seq 0. */
   readBack: MissionWaypoint[]
-  /** True only if every waypoint's position/altitude round-tripped within tolerance. */
+  /** True only if every *real* waypoint's position/altitude round-tripped within tolerance. Seq 0 (home) is never checked — ArduPilot owns that slot and may substitute its own home position. */
   verified: boolean
   mismatches: Array<{ seq: number; reason: string }>
 }
@@ -122,8 +123,16 @@ export interface VehicleLink {
   disconnect(): Promise<void>
   getConnectionState(): ConnectionState
 
-  /** Uploads a mission (the standard MAVLink COUNT -> per-item REQUEST/ITEM handshake -> ACK), then downloads it back and diffs it against what was sent. */
-  uploadAndVerifyMission(waypoints: MissionWaypoint[]): Promise<MissionUploadResult>
+  /**
+   * Uploads a mission (the standard MAVLink COUNT -> per-item REQUEST/ITEM
+   * handshake -> ACK), then downloads it back and diffs it against what
+   * was sent. `homePosition` is sent as mission item seq 0 — ArduPilot's
+   * mission protocol reserves that slot for home and silently overwrites
+   * whatever's uploaded there with its own home position (often (0,0)
+   * without a GPS fix yet), so `waypoints` itself starts the real route
+   * at wire seq 1, and seq 0 is excluded from verification.
+   */
+  uploadAndVerifyMission(waypoints: MissionWaypoint[], homePosition: LatLng): Promise<MissionUploadResult>
 
   /** Arms or disarms via MAV_CMD_COMPONENT_ARM_DISARM, resolving only once the vehicle's COMMAND_ACK confirms it (rejects with the vehicle's reason otherwise — most commonly a failed pre-arm safety check). */
   armDisarm(arm: boolean): Promise<void>

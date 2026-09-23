@@ -10,6 +10,7 @@
  * in and out of this class — see its file for what's still
  * hardware-only and unverified.
  */
+import type { LatLng } from '@/lib/geo/types'
 import { encodeFrame, MavlinkFrameReader, type DecodedFrame } from './mavlink/codec'
 import {
   ARDUCOPTER_MODE_ALT_HOLD,
@@ -25,6 +26,7 @@ import {
   HEARTBEAT,
   MAV_AUTOPILOT_INVALID,
   MAV_CMD_COMPONENT_ARM_DISARM,
+  MAV_CMD_NAV_WAYPOINT,
   MAV_FRAME_GLOBAL_RELATIVE_ALT_INT,
   MAV_MISSION_ACCEPTED,
   MAV_MODE_FLAG_CUSTOM_MODE_ENABLED,
@@ -380,16 +382,41 @@ export class MavlinkSession {
     return items
   }
 
-  async uploadAndVerifyMission(waypoints: MissionWaypoint[]): Promise<MissionUploadResult> {
-    await this.uploadMission(waypoints)
+  /**
+   * ArduPilot's mission protocol reserves item seq 0 for the vehicle's
+   * HOME position, not a real waypoint — every real GCS (Mission
+   * Planner, QGroundControl) inserts one before the actual route.
+   * Skipping this and sending the route's own first waypoint as seq 0
+   * (as this project originally did) doesn't fail outright: the upload
+   * and download handshakes both complete normally, but the vehicle
+   * silently substitutes its own home position for whatever was sent at
+   * seq 0 — which reads back as a spurious, often huge, position
+   * mismatch (discovered against real hardware with no GPS fix yet: the
+   * substituted value was effectively (0, 0), producing a "position off
+   * by ~30°, ~75°" report that looked like real data corruption but
+   * wasn't). See Memory.md ADR-021.
+   */
+  async uploadAndVerifyMission(waypoints: MissionWaypoint[], homePosition: LatLng): Promise<MissionUploadResult> {
+    if (waypoints.length === 0) {
+      return { uploadedCount: 0, readBack: [], verified: true, mismatches: [] }
+    }
+
+    const homeItem: MissionWaypoint = { seq: 0, command: MAV_CMD_NAV_WAYPOINT, altM: 0, position: homePosition }
+    const wireItems: MissionWaypoint[] = [homeItem, ...waypoints.map((wp) => ({ ...wp, seq: wp.seq + 1 }))]
+
+    await this.uploadMission(wireItems)
     const readBack = await this.downloadMission()
 
     const mismatches: MissionUploadResult['mismatches'] = []
-    if (readBack.length !== waypoints.length) {
-      mismatches.push({ seq: -1, reason: `Uploaded ${waypoints.length} waypoints but read back ${readBack.length}.` })
+    if (readBack.length !== wireItems.length) {
+      mismatches.push({ seq: -1, reason: `Uploaded ${wireItems.length} waypoints but read back ${readBack.length}.` })
     }
+    // Seq 0 (home) is deliberately not checked — the vehicle owns that
+    // slot and may report back its own home position rather than what
+    // was sent, which is expected, not a mismatch.
     for (const wp of waypoints) {
-      const match = readBack.find((r) => r.seq === wp.seq)
+      const wireSeq = wp.seq + 1
+      const match = readBack.find((r) => r.seq === wireSeq)
       if (!match) {
         mismatches.push({ seq: wp.seq, reason: 'Missing from read-back.' })
         continue

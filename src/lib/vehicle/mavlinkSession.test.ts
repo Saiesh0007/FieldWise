@@ -32,6 +32,7 @@ import {
   VFR_HUD,
   WIND,
 } from './mavlink/messages'
+import type { LatLng } from '@/lib/geo/types'
 import { GCS_COMPID, GCS_SYSID, MavlinkSession } from './mavlinkSession'
 import type { MissionWaypoint } from './types'
 
@@ -48,6 +49,8 @@ class FakeVehicle {
   onOutgoing: (bytes: Uint8Array) => void = () => {}
   rejectUploads = false
   rejectArm = false
+  /** Simulates ArduPilot's real behavior: mission item seq 0 is HOME, and the vehicle substitutes its own position for whatever was uploaded there — here, an unset-GPS-fix (0, 0). */
+  overwriteHomeWithZero = false
 
   receive(bytes: Uint8Array) {
     for (const frame of this.reader.push(bytes)) this.handle(frame)
@@ -77,7 +80,8 @@ class FakeVehicle {
       }
     } else if (frame.msgId === MISSION_ITEM_INT.id) {
       const f = frame.fields
-      this.mission[f.seq] = { seq: f.seq, command: f.command, x: f.x, y: f.y, z: f.z }
+      const overwriteHome = this.overwriteHomeWithZero && f.seq === 0
+      this.mission[f.seq] = { seq: f.seq, command: f.command, x: overwriteHome ? 0 : f.x, y: overwriteHome ? 0 : f.y, z: f.z }
       if (f.seq + 1 < this.mission.length) {
         this.send(MISSION_REQUEST_INT, { seq: f.seq + 1, targetSystem: GCS_SYSID, targetComponent: GCS_COMPID })
       } else if (this.rejectUploads) {
@@ -138,6 +142,7 @@ const SAMPLE_WAYPOINTS: MissionWaypoint[] = [
   { seq: 1, command: 16, altM: 3, position: { lat: 12.3457, lon: 76.5433 } },
   { seq: 2, command: 16, altM: 3, position: { lat: 12.3458, lon: 76.5434 } },
 ]
+const SAMPLE_HOME: LatLng = { lat: 12.34, lon: 76.54 }
 
 describe('MavlinkSession + FakeVehicle', () => {
   it('resolves waitForHeartbeat once the vehicle sends one', async () => {
@@ -156,16 +161,17 @@ describe('MavlinkSession + FakeVehicle', () => {
     expect(session.getVehicleIdentity()).toEqual({ sysid: VEHICLE_SYSID, compid: VEHICLE_COMPID })
   })
 
-  it('uploads a mission, reads it back, and verifies it matches', async () => {
+  it('uploads a mission (with a synthetic home item at wire seq 0), reads it back, and verifies every real waypoint matches', async () => {
     const { session } = setUp()
-    const result = await session.uploadAndVerifyMission(SAMPLE_WAYPOINTS)
+    const result = await session.uploadAndVerifyMission(SAMPLE_WAYPOINTS, SAMPLE_HOME)
 
     expect(result.uploadedCount).toBe(3)
     expect(result.verified).toBe(true)
     expect(result.mismatches).toEqual([])
-    expect(result.readBack).toHaveLength(3)
+    // 3 real waypoints + the synthetic home item at wire seq 0.
+    expect(result.readBack).toHaveLength(4)
     for (const wp of SAMPLE_WAYPOINTS) {
-      const match = result.readBack.find((r) => r.seq === wp.seq)!
+      const match = result.readBack.find((r) => r.seq === wp.seq + 1)!
       expect(match.position.lat).toBeCloseTo(wp.position.lat, 6)
       expect(match.position.lon).toBeCloseTo(wp.position.lon, 6)
       expect(match.altM).toBe(wp.altM)
@@ -173,15 +179,26 @@ describe('MavlinkSession + FakeVehicle', () => {
     }
   })
 
+  it('does not flag a mismatch when the vehicle substitutes its own home position for wire seq 0 — the real regression this project hit against a real Pixhawk', async () => {
+    const { vehicle, session } = setUp()
+    vehicle.overwriteHomeWithZero = true
+    const result = await session.uploadAndVerifyMission(SAMPLE_WAYPOINTS, SAMPLE_HOME)
+
+    expect(result.verified).toBe(true)
+    expect(result.mismatches).toEqual([])
+    const homeReadBack = result.readBack.find((r) => r.seq === 0)!
+    expect(homeReadBack.position).toEqual({ lat: 0, lon: 0 }) // the vehicle's substituted value, not SAMPLE_HOME — and correctly ignored
+  })
+
   it('surfaces a vehicle-side mission rejection as a thrown error', async () => {
     const { vehicle, session } = setUp()
     vehicle.rejectUploads = true
-    await expect(session.uploadAndVerifyMission(SAMPLE_WAYPOINTS)).rejects.toThrow(/rejected the mission/i)
+    await expect(session.uploadAndVerifyMission(SAMPLE_WAYPOINTS, SAMPLE_HOME)).rejects.toThrow(/rejected the mission/i)
   })
 
-  it('handles an empty mission (zero waypoints) without hanging', async () => {
+  it('handles an empty mission (zero waypoints) without hanging or sending anything, including no home item', async () => {
     const { session } = setUp()
-    const result = await session.uploadAndVerifyMission([])
+    const result = await session.uploadAndVerifyMission([], SAMPLE_HOME)
     expect(result.uploadedCount).toBe(0)
     expect(result.readBack).toEqual([])
     expect(result.verified).toBe(true)
@@ -332,7 +349,7 @@ describe('MavlinkSession timeouts', () => {
 
   it('rejects uploadAndVerifyMission if the vehicle never answers MISSION_COUNT', async () => {
     const session = new MavlinkSession(async () => {}) // a "vehicle" that never responds to anything
-    const promise = session.uploadAndVerifyMission(SAMPLE_WAYPOINTS)
+    const promise = session.uploadAndVerifyMission(SAMPLE_WAYPOINTS, SAMPLE_HOME)
     const assertion = expect(promise).rejects.toThrow(/timed out/i)
     await vi.advanceTimersByTimeAsync(3001)
     await assertion

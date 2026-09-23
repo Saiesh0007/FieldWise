@@ -24,6 +24,7 @@
  * here as "should work" until verified with real hardware — see
  * bridge/README.md and VEHICLE_CONNECTION_CHECKLIST.md.
  */
+import type { LatLng } from '@/lib/geo/types'
 import { MavlinkSession, HEARTBEAT_STALE_MS } from './mavlinkSession'
 import type { ConnectionState, FlightModeCommand, MissionUploadResult, MissionWaypoint, VehicleLink, VehicleLinkEvents } from './types'
 
@@ -153,9 +154,9 @@ export class PiRelayVehicle implements VehicleLink {
     this.ws = null
   }
 
-  async uploadAndVerifyMission(waypoints: MissionWaypoint[]): Promise<MissionUploadResult> {
+  async uploadAndVerifyMission(waypoints: MissionWaypoint[], homePosition: LatLng): Promise<MissionUploadResult> {
     if (this.connectionState !== 'connected') throw new Error('Not connected to a vehicle.')
-    return this.session.uploadAndVerifyMission(waypoints)
+    return this.session.uploadAndVerifyMission(waypoints, homePosition)
   }
 
   async armDisarm(arm: boolean): Promise<void> {
