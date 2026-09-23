@@ -20,6 +20,7 @@ interface ImportPanelProps {
   drawTarget: DrawTarget
   onStartDrawBoundary: () => void
   onStartDrawZone: () => void
+  onStartDrawCircleZone: () => void
   onCancelDraw: () => void
   onGpsWalkPointsChange: (points: LatLng[]) => void
   onLocationSelected: (location: SelectedLocation) => void
@@ -123,6 +124,7 @@ export function ImportPanel({
   drawTarget,
   onStartDrawBoundary,
   onStartDrawZone,
+  onStartDrawCircleZone,
   onCancelDraw,
   onGpsWalkPointsChange,
   onLocationSelected,
@@ -146,6 +148,7 @@ export function ImportPanel({
   const [gpsWalkOpen, setGpsWalkOpen] = useState(false)
   const [droneSimulating, setDroneSimulating] = useState(false)
   const [fileError, setFileError] = useState<string | null>(null)
+  const [obstaclePickerOpen, setObstaclePickerOpen] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   // Drone simulation via useDroneSimulation hook
@@ -404,17 +407,53 @@ export function ImportPanel({
 
           <section className="space-y-2">
             <div className="flex items-center justify-between">
-              <h3 className="text-xs font-semibold uppercase tracking-wide text-(--text-muted)">No-spray zones</h3>
-              {drawTarget === 'zone' ? (
+              <h3 className="text-xs font-semibold uppercase tracking-wide text-(--text-muted)">No-spray zones / obstacles</h3>
+              {drawTarget === 'zone' || drawTarget === 'circle-zone' ? (
                 <Button size="sm" variant="ghost" onClick={onCancelDraw}>
                   Cancel
                 </Button>
+              ) : obstaclePickerOpen ? (
+                <div className="flex items-center gap-1.5">
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    onClick={() => {
+                      setObstaclePickerOpen(false)
+                      onStartDrawZone()
+                    }}
+                  >
+                    Polygon
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    onClick={() => {
+                      setObstaclePickerOpen(false)
+                      onStartDrawCircleZone()
+                    }}
+                  >
+                    Circle
+                  </Button>
+                  <Button size="sm" variant="ghost" onClick={() => setObstaclePickerOpen(false)}>
+                    Cancel
+                  </Button>
+                </div>
               ) : (
-                <Button size="sm" variant="ghost" disabled={drawTarget !== null || droneCaptureActive} onClick={onStartDrawZone}>
-                  + Draw zone
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  disabled={drawTarget !== null || droneCaptureActive}
+                  onClick={() => setObstaclePickerOpen(true)}
+                >
+                  + Add obstacle
                 </Button>
               )}
             </div>
+            {obstaclePickerOpen && (
+              <p className="text-xs text-(--text-muted)">
+                Polygon: draw freehand on the map. Circle: click a center, then click again to set the radius.
+              </p>
+            )}
             {noSprayZones.length === 0 ? (
               <p className="text-xs text-(--text-muted)">None yet — obstacles, ponds, or exclusion lanes.</p>
             ) : (
@@ -424,7 +463,12 @@ export function ImportPanel({
                     key={zone.id}
                     className="flex items-center justify-between rounded-(--radius-control) border border-(--border-subtle) px-2.5 py-1.5 text-sm"
                   >
-                    <span>{zone.label}</span>
+                    <span>
+                      {zone.label}
+                      {zone.shape === 'circle' && zone.radiusM != null && (
+                        <span className="text-(--text-muted)"> · circle, r={zone.radiusM.toFixed(0)}m</span>
+                      )}
+                    </span>
                     <button
                       type="button"
                       className="text-xs text-danger hover:underline"

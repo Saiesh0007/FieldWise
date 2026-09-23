@@ -11,6 +11,7 @@ import { SimulatePanel } from '@/components/panels/SimulatePanel'
 import { VerifyPanel } from '@/components/panels/VerifyPanel'
 import { useProjectAutosave } from '@/hooks/useProjectAutosave'
 import { createBoundary } from '@/lib/geo/boundary'
+import { circleToPolygon } from '@/lib/geo/circleObstacle'
 import { headingDegBetween } from '@/lib/geo/projection'
 import type { LatLng } from '@/lib/geo/types'
 import { useFieldStore } from '@/store/useFieldStore'
@@ -62,8 +63,20 @@ function App() {
     if (drawTarget === 'boundary') {
       setBoundary(createBoundary(vertices, 'satellite-trace', { imageryDate: new Date().toISOString().slice(0, 10) }))
     } else if (drawTarget === 'zone') {
-      addNoSprayZone({ id: `zone-${Date.now()}`, label: `Zone ${noSprayZones.length + 1}`, vertices })
+      addNoSprayZone({ id: `zone-${Date.now()}`, label: `Zone ${noSprayZones.length + 1}`, vertices, shape: 'polygon' })
     }
+    setDrawTarget(null)
+  }
+
+  const handleCircleZoneFinish = (center: LatLng, radiusM: number) => {
+    addNoSprayZone({
+      id: `zone-${Date.now()}`,
+      label: `Obstacle ${noSprayZones.length + 1}`,
+      vertices: circleToPolygon(center, radiusM),
+      shape: 'circle',
+      center,
+      radiusM,
+    })
     setDrawTarget(null)
   }
 
@@ -137,6 +150,7 @@ function App() {
                 drawTarget={drawTarget}
                 onStartDrawBoundary={() => setDrawTarget('boundary')}
                 onStartDrawZone={() => setDrawTarget('zone')}
+                onStartDrawCircleZone={() => setDrawTarget('circle-zone')}
                 onCancelDraw={() => setDrawTarget(null)}
                 onGpsWalkPointsChange={setLiveWalkPath}
                 onLocationSelected={handleLocationSelected}
@@ -179,6 +193,7 @@ function App() {
             drawTarget={drawTarget}
             onDrawFinish={handleDrawFinish}
             onDrawCancel={() => setDrawTarget(null)}
+            onCircleZoneFinish={handleCircleZoneFinish}
             liveWalkPath={liveWalkPath}
             droneCaptureActive={droneCaptureActive}
             onDroneCapturePoint={handleDroneCapturePoint}

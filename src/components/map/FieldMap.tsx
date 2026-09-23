@@ -9,7 +9,7 @@ import 'maplibre-gl/dist/maplibre-gl.css'
 import { useEffect, useRef, useState } from 'react'
 import { PhoneFrameOverlay } from '@/components/map/PhoneFrameOverlay'
 import { Button } from '@/components/ui/Button'
-import type { LocalProjection } from '@/lib/geo/projection'
+import { createLocalProjection, type LocalProjection } from '@/lib/geo/projection'
 import { SAMPLE_FIELD_CENTER } from '@/lib/geo/sampleField'
 import type { FieldBoundary, LatLng, NoSprayZone, SprayPlan } from '@/lib/geo/types'
 import { SATELLITE_LAYER_ID, SATELLITE_SOURCE_ID, SATELLITE_STYLE, setBaseMapMode, type BaseMapMode } from '@/lib/map/basemap'
@@ -51,9 +51,11 @@ const SOURCE = {
   simGroundTruth: 'sim-ground-truth',
   simActiveBoundary: 'sim-active-boundary',
   heatmap: 'heatmap',
+  circlePreview: 'circle-preview',
+  circleCenterPoint: 'circle-center-point',
 } as const
 
-export type DrawTarget = 'boundary' | 'zone' | null
+export type DrawTarget = 'boundary' | 'zone' | 'circle-zone' | null
 
 /** When true the map is in "drone point capture" mode — each click fires onDroneCapturePoint. */
 export type DroneCaptureMode = boolean
@@ -79,6 +81,12 @@ interface FieldMapProps {
   drawTarget: DrawTarget
   onDrawFinish: (vertices: LatLng[]) => void
   onDrawCancel: () => void
+  /**
+   * Circle-shaped obstacle ("Add Obstacle" → Circle): first click places
+   * the center, second click sets the radius and fires this — only used
+   * when drawTarget === 'circle-zone'.
+   */
+  onCircleZoneFinish?: (center: LatLng, radiusM: number) => void
   /** In-progress GPS walk points (real or simulated), drawn the same way as a click-drawn polygon. */
   liveWalkPath?: LatLng[]
 
@@ -184,6 +192,7 @@ export function FieldMap({
   drawTarget,
   onDrawFinish,
   onDrawCancel,
+  onCircleZoneFinish,
   liveWalkPath = [],
   droneCaptureActive = false,
   onDroneCapturePoint,
@@ -199,6 +208,11 @@ export function FieldMap({
   const mapRef = useRef<MapLibreMap | null>(null)
   const [loaded, setLoaded] = useState(false)
   const [drawVertices, setDrawVertices] = useState<LatLng[]>([])
+
+  // Circle obstacle draw session: first click sets the center, then the
+  // live cursor position (and the next click) determine the radius.
+  const [circleCenter, setCircleCenter] = useState<LatLng | null>(null)
+  const [circleRadiusM, setCircleRadiusM] = useState(0)
   const lastFittedBoundaryId = useRef<string | null>(null)
   const [usingFallbackTiles, setUsingFallbackTiles] = useState(false)
   const [baseMapMode, setBaseMapModeState] = useState<BaseMapMode>('satellite')
@@ -234,10 +248,16 @@ export function FieldMap({
   droneCaptureActiveRef.current = droneCaptureActive
   const onDroneCapturePointRef = useRef(onDroneCapturePoint)
   onDroneCapturePointRef.current = onDroneCapturePoint
+  const circleCenterRef = useRef(circleCenter)
+  circleCenterRef.current = circleCenter
+  const onCircleZoneFinishRef = useRef(onCircleZoneFinish)
+  onCircleZoneFinishRef.current = onCircleZoneFinish
 
   // Drawing is reset whenever the target changes (including turning off).
   useEffect(() => {
     setDrawVertices([])
+    setCircleCenter(null)
+    setCircleRadiusM(0)
   }, [drawTarget])
 
   // Tracks whether any currently-loaded satellite tile actually came
@@ -407,6 +427,28 @@ export function FieldMap({
         paint: { 'line-color': '#dc2626', 'line-width': 2, 'line-dasharray': [1, 1] },
       })
 
+      // Circle-obstacle draw session preview: the ring-so-far plus a dot at the center.
+      map.addSource(SOURCE.circlePreview, { type: 'geojson', data: EMPTY_FEATURE_COLLECTION })
+      map.addLayer({
+        id: 'circle-preview-fill',
+        type: 'fill',
+        source: SOURCE.circlePreview,
+        paint: { 'fill-color': '#dc2626', 'fill-opacity': 0.15 },
+      })
+      map.addLayer({
+        id: 'circle-preview-outline',
+        type: 'line',
+        source: SOURCE.circlePreview,
+        paint: { 'line-color': '#dc2626', 'line-width': 2 },
+      })
+      map.addSource(SOURCE.circleCenterPoint, { type: 'geojson', data: EMPTY_FEATURE_COLLECTION })
+      map.addLayer({
+        id: 'circle-center-point-layer',
+        type: 'circle',
+        source: SOURCE.circleCenterPoint,
+        paint: { 'circle-radius': 5, 'circle-color': '#dc2626', 'circle-stroke-color': '#fff', 'circle-stroke-width': 1.5 },
+      })
+
       // Spray plan: spraying legs solid, transit legs dashed — kept as
       // two separate layers/sources rather than one data-driven layer
       // because line-dasharray isn't a data-expression-safe paint
@@ -541,6 +583,20 @@ export function FieldMap({
         onDroneCapturePointRef.current?.({ lon: e.lngLat.lng, lat: e.lngLat.lat })
         return
       }
+      if (drawTargetRef.current === 'circle-zone') {
+        const clicked: LatLng = { lon: e.lngLat.lng, lat: e.lngLat.lat }
+        if (!circleCenterRef.current) {
+          setCircleCenter(clicked)
+        } else {
+          const proj = createLocalProjection(circleCenterRef.current)
+          const local = proj.toLocal(clicked)
+          const radiusM = Math.max(1, Math.hypot(local.x, local.y))
+          onCircleZoneFinishRef.current?.(circleCenterRef.current, radiusM)
+          setCircleCenter(null)
+          setCircleRadiusM(0)
+        }
+        return
+      }
       if (drawTargetRef.current) {
         setDrawVertices((prev) => [...prev, { lon: e.lngLat.lng, lat: e.lngLat.lat }])
         return
@@ -607,6 +663,12 @@ export function FieldMap({
       if (correctionActiveRef.current && !isDraggingPilotRef.current) map.getCanvas().style.cursor = ''
     })
     map.on('mousemove', (e: MapMouseEvent) => {
+      if (drawTargetRef.current === 'circle-zone' && circleCenterRef.current) {
+        const hovered: LatLng = { lon: e.lngLat.lng, lat: e.lngLat.lat }
+        const proj = createLocalProjection(circleCenterRef.current)
+        const local = proj.toLocal(hovered)
+        setCircleRadiusM(Math.max(1, Math.hypot(local.x, local.y)))
+      }
       if (!isDraggingPilotRef.current) return
       if (e.originalEvent.buttons === 0) {
         // The button isn't actually held anymore — the release must have
@@ -821,6 +883,21 @@ export function FieldMap({
     })
   }, [drawVertices, liveWalkPath, drawTarget, loaded])
 
+  // Circle-obstacle draw session preview.
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !loaded) return
+
+    if (drawTarget !== 'circle-zone' || !circleCenter) {
+      setData(map, SOURCE.circlePreview, EMPTY_FEATURE_COLLECTION)
+      setData(map, SOURCE.circleCenterPoint, EMPTY_FEATURE_COLLECTION)
+      return
+    }
+
+    setData(map, SOURCE.circleCenterPoint, latLngPointFeature(circleCenter))
+    setData(map, SOURCE.circlePreview, circleRadiusM > 0 ? accuracyCircleFeature(circleCenter, circleRadiusM) : EMPTY_FEATURE_COLLECTION)
+  }, [drawTarget, circleCenter, circleRadiusM, loaded])
+
   // Crop-row tap points — same visual language (dots + connecting line),
   // reusing the draw-progress layers since the two modes never overlap.
   useEffect(() => {
@@ -928,7 +1005,7 @@ export function FieldMap({
         </div>
       )}
 
-      {drawTarget && (
+      {drawTarget && drawTarget !== 'circle-zone' && (
         <div className="absolute left-1/2 top-4 z-10 -translate-x-1/2 rounded-(--radius-card) border border-(--border-subtle) bg-(--surface-panel) px-4 py-2.5 shadow-(--shadow-panel)">
           <div className="flex items-center gap-3">
             <span className="text-sm text-(--text-primary)">
@@ -948,6 +1025,26 @@ export function FieldMap({
             </Button>
             <Button size="sm" variant="primary" disabled={drawVertices.length < 3} onClick={() => onDrawFinish(drawVertices)}>
               Finish ({drawVertices.length})
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {drawTarget === 'circle-zone' && (
+        <div className="absolute left-1/2 top-4 z-10 -translate-x-1/2 rounded-(--radius-card) border border-(--border-subtle) bg-(--surface-panel) px-4 py-2.5 shadow-(--shadow-panel)">
+          <div className="flex items-center gap-3">
+            <span className="text-sm text-(--text-primary)">
+              {!circleCenter
+                ? 'Click the map to place the obstacle center'
+                : `Click again to set the radius${circleRadiusM > 0 ? ` — ${circleRadiusM.toFixed(1)}m` : ''}`}
+            </span>
+            {circleCenter && (
+              <Button size="sm" variant="ghost" onClick={() => setCircleCenter(null)}>
+                Undo center
+              </Button>
+            )}
+            <Button size="sm" variant="secondary" onClick={onDrawCancel}>
+              Cancel
             </Button>
           </div>
         </div>

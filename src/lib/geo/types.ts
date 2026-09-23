@@ -71,6 +71,16 @@ export interface NoSprayZone {
   id: string
   label: string
   vertices: LatLng[]
+  /**
+   * How the zone was drawn. `vertices` is always the authoritative polygon
+   * (differencing, planning and export never need to know this) — this is
+   * purely so the UI can show "circle, r=12m" and re-derive the original
+   * center/radius for a shape that was drawn as a circle.
+   */
+  shape?: 'polygon' | 'circle'
+  /** Present only when shape === 'circle'. */
+  center?: LatLng
+  radiusM?: number
 }
 
 /** Hardware profile for the spraying drone — kept generic, no vendor lock-in. */
