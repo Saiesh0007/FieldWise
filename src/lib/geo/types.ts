@@ -53,7 +53,7 @@ export interface BoundaryEdge {
   provenance: EdgeProvenance
 }
 
-export type BoundarySource = 'satellite-trace' | 'gps-walk' | 'kml-import' | 'geojson-import'
+export type BoundarySource = 'satellite-trace' | 'gps-walk' | 'drone-walk' | 'kml-import' | 'geojson-import'
 
 /** The field boundary: a single closed polygon with per-edge provenance. */
 export interface FieldBoundary {

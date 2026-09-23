@@ -2,10 +2,11 @@ import { distance } from './math'
 import type { BoundaryEdge, BoundarySource, FieldBoundary, LatLng, LocalPoint, ProvenanceKind } from './types'
 
 function defaultProvenanceFor(source: BoundarySource): ProvenanceKind {
-  // A GPS walk is itself the ground-truth act, so it starts verified.
-  // Satellite tracing and file imports all carry the same risk (a dated,
-  // possibly-stale prior) regardless of where the file came from.
-  return source === 'gps-walk' ? 'walked' : 'satellite'
+  // GPS walk and drone-walk are ground-truth acts — points captured in the
+  // field at known locations — so they start verified. Satellite tracing
+  // and file imports all carry the same risk (a dated, possibly-stale prior)
+  // regardless of where the file came from.
+  return source === 'gps-walk' || source === 'drone-walk' ? 'walked' : 'satellite'
 }
 
 /**

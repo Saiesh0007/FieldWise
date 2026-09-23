@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useCallback, useState } from 'react'
 import { AppShell } from '@/components/layout/AppShell'
 import { FieldMap, type CorrectionTarget, type DrawTarget, type FlyToRequest, type SimulateOverlay } from '@/components/map/FieldMap'
 import { ExportPanel } from '@/components/panels/ExportPanel'
@@ -41,6 +41,10 @@ function App() {
   const [simulateOverlay, setSimulateOverlay] = useState<SimulateOverlay | null>(null)
   const [flyTo, setFlyTo] = useState<FlyToRequest | null>(null)
   const [projectsOpen, setProjectsOpen] = useState(false)
+
+  // Drone point-capture state — active while the user is in "Drone" plot-creation mode.
+  const [droneCaptureActive, setDroneCaptureActive] = useState(false)
+  const [dronePoints, setDronePoints] = useState<LatLng[]>([])
 
   // A fresh object every time (even for an identical place searched
   // twice), so FieldMap's effect — keyed on this whole object's
@@ -85,6 +89,43 @@ function App() {
     setCropRowTapActive(false)
   }
 
+  // Drone capture handlers
+  // Two independent, self-contained functional updates rather than
+  // calling setLiveWalkPath from inside setDronePoints's updater — an
+  // updater function must stay pure (React StrictMode double-invokes it
+  // specifically to catch exactly this), and nesting a different
+  // component's state setter inside one is a side effect hiding there.
+  const handleDroneCapturePoint = useCallback((point: LatLng) => {
+    setDronePoints((prev) => [...prev, point])
+    setLiveWalkPath((prev) => [...prev, point])
+  }, [])
+
+  const handleDronePointsChange = useCallback((points: LatLng[]) => {
+    setDronePoints(points)
+    // Mirror drone points into the live walk path so the map visualizes them
+    setLiveWalkPath(points)
+  }, [])
+
+  const handleStartDroneCapture = useCallback(() => {
+    setDroneCaptureActive(true)
+    setDrawTarget(null)
+    setDronePoints([])
+    setLiveWalkPath([])
+  }, [])
+
+  const handleStopDroneCapture = useCallback(() => {
+    setDroneCaptureActive(false)
+    setDronePoints([])
+    setLiveWalkPath([])
+  }, [])
+
+  const handleDroneCaptureComplete = useCallback((vertices: LatLng[]) => {
+    setBoundary(createBoundary(vertices, 'drone-walk'))
+    setDroneCaptureActive(false)
+    setDronePoints([])
+    setLiveWalkPath([])
+  }, [setBoundary])
+
   return (
     <AppShell onOpenProjects={() => setProjectsOpen(true)}>
       <ProjectsPanel open={projectsOpen} onClose={() => setProjectsOpen(false)} />
@@ -99,6 +140,12 @@ function App() {
                 onCancelDraw={() => setDrawTarget(null)}
                 onGpsWalkPointsChange={setLiveWalkPath}
                 onLocationSelected={handleLocationSelected}
+                droneCaptureActive={droneCaptureActive}
+                dronePoints={dronePoints}
+                onDronePointsChange={handleDronePointsChange}
+                onStartDroneCapture={handleStartDroneCapture}
+                onStopDroneCapture={handleStopDroneCapture}
+                onDroneCaptureComplete={handleDroneCaptureComplete}
               />
             )}
             {currentStep === 'verify' && (
@@ -133,6 +180,8 @@ function App() {
             onDrawFinish={handleDrawFinish}
             onDrawCancel={() => setDrawTarget(null)}
             liveWalkPath={liveWalkPath}
+            droneCaptureActive={droneCaptureActive}
+            onDroneCapturePoint={handleDroneCapturePoint}
             correctionTarget={correctionTarget}
             onCorrectionFinish={handleCorrectionFinish}
             onCorrectionCancel={() => setCorrectionTarget(null)}

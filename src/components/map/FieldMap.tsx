@@ -55,6 +55,9 @@ const SOURCE = {
 
 export type DrawTarget = 'boundary' | 'zone' | null
 
+/** When true the map is in "drone point capture" mode — each click fires onDroneCapturePoint. */
+export type DroneCaptureMode = boolean
+
 /** "Walk a strip" and "trim an edge" are the same underlying delta merge (see lib/geo/delta.ts) — mode only changes which way the pilot marker starts nudged and the overlay's copy. */
 export interface CorrectionTarget {
   mode: 'walk-strip' | 'trim-edge'
@@ -78,6 +81,15 @@ interface FieldMapProps {
   onDrawCancel: () => void
   /** In-progress GPS walk points (real or simulated), drawn the same way as a click-drawn polygon. */
   liveWalkPath?: LatLng[]
+
+  /**
+   * Drone point-capture mode — when true, each map click fires onDroneCapturePoint
+   * with the clicked coordinate instead of adding to the boundary-draw polygon.
+   * The drone-crosshair overlay is shown and map cursor is crosshair.
+   */
+  droneCaptureActive?: boolean
+  /** Called for every map click while droneCaptureActive is true. */
+  onDroneCapturePoint?: (point: LatLng) => void
 
   /** Drag-the-pilot-marker correction — "walk a strip" / "trim an edge". */
   correctionTarget: CorrectionTarget | null
@@ -173,6 +185,8 @@ export function FieldMap({
   onDrawFinish,
   onDrawCancel,
   liveWalkPath = [],
+  droneCaptureActive = false,
+  onDroneCapturePoint,
   correctionTarget,
   onCorrectionFinish,
   onCorrectionCancel,
@@ -216,6 +230,10 @@ export function FieldMap({
   cropRowTapActiveRef.current = cropRowTapActive
   const onCropRowTapRef = useRef(onCropRowTap)
   onCropRowTapRef.current = onCropRowTap
+  const droneCaptureActiveRef = useRef(droneCaptureActive)
+  droneCaptureActiveRef.current = droneCaptureActive
+  const onDroneCapturePointRef = useRef(onDroneCapturePoint)
+  onDroneCapturePointRef.current = onDroneCapturePoint
 
   // Drawing is reset whenever the target changes (including turning off).
   useEffect(() => {
@@ -517,6 +535,12 @@ export function FieldMap({
     })
 
     map.on('click', (e: MapMouseEvent) => {
+      // Drone point-capture mode takes first priority — each click emits
+      // one point at the clicked coordinate (the "drone's current position").
+      if (droneCaptureActiveRef.current) {
+        onDroneCapturePointRef.current?.({ lon: e.lngLat.lng, lat: e.lngLat.lat })
+        return
+      }
       if (drawTargetRef.current) {
         setDrawVertices((prev) => [...prev, { lon: e.lngLat.lng, lat: e.lngLat.lat }])
         return
@@ -627,12 +651,12 @@ export function FieldMap({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- one-time map init; live values flow in via refs/effects below
   }, [])
 
-  // Drawing / crop-row-tap cursor
+  // Drawing / crop-row-tap / drone-capture cursor
   useEffect(() => {
     const map = mapRef.current
     if (!map) return
-    map.getCanvas().style.cursor = drawTarget || cropRowTapActive ? 'crosshair' : ''
-  }, [drawTarget, cropRowTapActive])
+    map.getCanvas().style.cursor = drawTarget || cropRowTapActive || droneCaptureActive ? 'crosshair' : ''
+  }, [drawTarget, cropRowTapActive, droneCaptureActive])
 
   // ---- Data sync effects ---------------------------------------------
   useEffect(() => {
@@ -831,7 +855,7 @@ export function FieldMap({
     setData(map, SOURCE.walkTrace, walkTrace.length >= 2 ? latLngLineFeature(walkTrace) : EMPTY_FEATURE_COLLECTION)
   }, [correctionTarget, pilotPosition, accuracyM, walkTrace, loaded])
 
-  const showGetStarted = !boundary && !simulateOverlay && !drawTarget && liveWalkPath.length === 0
+  const showGetStarted = !boundary && !simulateOverlay && !drawTarget && !droneCaptureActive && liveWalkPath.length === 0
 
   return (
     <div className="relative h-full w-full">
@@ -925,6 +949,22 @@ export function FieldMap({
             <Button size="sm" variant="primary" disabled={drawVertices.length < 3} onClick={() => onDrawFinish(drawVertices)}>
               Finish ({drawVertices.length})
             </Button>
+          </div>
+        </div>
+      )}
+
+      {droneCaptureActive && (
+        <div className="absolute left-1/2 top-4 z-10 -translate-x-1/2 rounded-(--radius-card) border border-brand-300/60 bg-(--surface-panel) px-4 py-2.5 shadow-(--shadow-panel)">
+          <div className="flex items-center gap-2">
+            {/* Drone icon */}
+            <svg viewBox="0 0 20 20" fill="none" className="h-4 w-4 shrink-0 text-brand-600" aria-hidden="true">
+              <circle cx="10" cy="10" r="2.5" fill="currentColor" fillOpacity="0.3" stroke="currentColor" strokeWidth="1.4" />
+              <path d="M4 4h2.5v2.5M13.5 4H16v2.5M4 16h2.5v-2.5M13.5 16H16v-2.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+              <path d="M5.5 5.5L8 8M11.5 8L14.5 5M8 11.5L5 14.5M11.5 11.5L14.5 14.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+            </svg>
+            <span className="text-sm text-(--text-primary)">
+              Drone mode — click map to place boundary point
+            </span>
           </div>
         </div>
       )}
