@@ -213,6 +213,7 @@ The planning algorithm executes in local metric space:
 2. **Scanline Even-Odd Slicing:** Evaluates intersections between horizontal row lines and polygon boundary edges, handling concave fields and internal holes automatically.
 3. **Sortie Partitioning (`droneProfile.ts`):** Accumulates chemical volume consumed ($A_{\text{ha}} \times \text{Rate}_{\text{L/ha}}$) and flight time ($\frac{\text{Distance}}{\text{Speed}} + \text{Turns} \times \text{TurnPenalty}$). A new sortie break is inserted whenever the accumulated load approaches `tankL` or time approaches `enduranceMin`.
 4. **Move Plan (`translateSprayPlan`):** A pure post-processing translation of every pass's `start`/`end` by a fixed local-meter offset — applied once, after the plan is otherwise complete, so it never affects row placement, sortie splitting, or totals (distance/volume/area are all translation-invariant). See Memory.md ADR-013 for why this is a separate post-processing step rather than a `planSprayPath` input.
+5. **Start/Finish (`planStartPoint`/`planFinishPoint`) & Plan Splitting (`splitPlanPasses`):** The mission's actual flight-path start and finish are simply the first pass's `start` and the last pass's `end`, read straight off the finished plan — not a separate computation, and not the same point as the boundary's first vertex. Plan Splitting marks a prefix or suffix of the plan's passes (flattened across every sortie, in flight order) as "included" by pass-count percentage; a pure filter over the finished plan, like Move Plan, so it composes with everything else and never touches `planSprayPath` itself. See Memory.md ADR-016.
 
 ### 2.4. Hard Readiness Safety Gate (`readiness.ts`)
 The readiness engine enforces the mission clearance rule:
@@ -249,7 +250,7 @@ If unverified edges exist, `cleared` is `false` and `blockingEdgeIds` lists all 
 | 40 | `MISSION_REQUEST` | 5 | 230 | Receive | Legacy waypoint request from older autopilot firmware |
 | 43 | `MISSION_REQUEST_LIST` | 3 | 132 | Send | Initiates mission download handshake for readback verification |
 | 44 | `MISSION_COUNT` | 9 | 221 | Bidirectional | Declares total number of waypoints in upload/download transaction |
-| 46 | `MISSION_ITEM_REACHED` | 2 | 11 | Receive | Autopilot progress notification during autonomous execution |
+| 46 | `MISSION_ITEM_REACHED` | 2 | 11 | Receive | Decodes into `lastReachedWaypointSeq` — drives Send to Vehicle's live mission-progress bar and "Finish point reached, mission 100% complete" banner |
 | 47 | `MISSION_ACK` | 8 | 153 | Bidirectional | Final acknowledgment confirming mission transaction result (`0 = ACCEPTED`) |
 | 51 | `MISSION_REQUEST_INT` | 5 | 196 | Receive | Requests specific waypoint sequence $i$ using integer micro-degrees |
 | 73 | `MISSION_ITEM_INT` | 38 | 38 | Bidirectional | Waypoint coordinates ($10^7$), altitude — every leg is a plain `MAV_CMD_NAV_WAYPOINT` (16); **no `DO_SET_SERVO`/actuator command is sent** — uploads are coverage geometry only, not sprayer on/off control (a deliberate, documented scope cut, not an oversight — see `missionFromPlan.ts`'s header comment) |

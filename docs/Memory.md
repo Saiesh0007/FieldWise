@@ -193,6 +193,21 @@ This document captures historical context, Architectural Decision Records (ADRs)
 
 ---
 
+### ADR-016: Start/Finish Points, Plan Splitting, and Live Mission Progress
+* **Date:** 2026-09-23
+* **Status:** Accepted & Implemented (planning/UI side; upload-subset filtering deferred, see scope note)
+* **Context:** Phase 3 of 3 for the pilot's flight-control request. Two related asks: "there should be a start point... and a finish point so that once the drone reaches there the mission is completed 100%," and "add Plan Splitting... so the pilot can optimize battery performance." Neither needed new MAVLink protocol work — `MISSION_ITEM_REACHED` (id 46) had already been a registered message in `messages.ts` since an earlier phase, just never decoded into telemetry.
+* **Decision:**
+  * `planStartPoint(plan)` / `planFinishPoint(plan)` (`planner.ts`) read the actual flight path's first pass's start and last pass's end — not the boundary's first vertex, which is a different point the existing `home-point` marker already used for the launch/refill marker. Rendered as distinct green/red map markers.
+  * `splitPlanPasses(plan, percent, fromEnd)` (`planner.ts`) marks a prefix or suffix of the plan's passes (by pass count, in flight order across every sortie) as "included" vs. "excluded" — a pure filter on an already-generated plan, not a `recompute()` input, so `planSplitPercent`/`planSplitFromEnd` live in the store as plain UI state. The excluded portion renders in blue (`excluded-lines-layer`) over the plan, matching AeroGCS Green's own blue/yellow convention.
+  * `MavlinkSession` now decodes `MISSION_ITEM_REACHED` into `telemetry.lastReachedWaypointSeq`. `SendPanel` combines that with the last upload's `uploadedCount` to drive a live progress bar and a "Finish point reached — mission 100% complete" banner — literally what the pilot asked for, built on a message the codec could already parse but had never wired anywhere.
+* **Scope cut, deliberate:** "Upload mission" still uploads the *whole* plan regardless of the Plan Splitting slider — the split is a planning/visualization aid (and matches the AeroGCS manual's own framing: a display tool for deciding how much to fly this battery) rather than a mission-upload filter. Actually uploading only the included subset would mean renumbering waypoint sequence numbers for the mission protocol, which touches the mission-upload path this project has spent the most verification effort keeping trustworthy — deferred rather than risked in the same pass as three other features. "Resume" in the sense of continuing an interrupted mission is the flight-controls Resume button (§11.6, see ADR-015), not something Plan Splitting itself does.
+* **Consequences:**
+  * *Pros:* 6 new `planner.test.ts` cases (start/finish point lookup, split at 0%/50%/100% from both directions) plus a `mavlinkSession.test.ts` case for the new decode — all pure-function, deterministic. Browser-verified: both markers present on the map (queried via MapLibre's own `queryRenderedFeatures`, not just "should be there"), a 40% split leaving 56 of 139 passes included with 114 excluded lines actually rendered in the blue layer, direction toggle and Reset both confirmed.
+  * *Cons:* Plan Splitting's practical battery-optimization value is currently "decide what to fly, then fly the whole mission and stop manually via Brake/Land" rather than "upload only this portion" — a real but smaller version of the feature than the full manual describes. Live mission progress has the same real-hardware caveat as ADR-015: `MISSION_ITEM_REACHED` decoding is unit-tested against a simulated vehicle, never received from an actual Pixhawk mid-mission.
+
+---
+
 ## 2. Hardware Gotchas & Field Notes
 
 ### Pixhawk 2.4.8 USB Communication
@@ -221,7 +236,7 @@ This document captures historical context, Architectural Decision Records (ADRs)
 
 * **Command:** `npm test`
 * **Test Runner:** Vitest v5.0
-* **Status:** 25 test files, 201 tests passing (100% success rate).
+* **Status:** 25 test files, 208 tests passing (100% success rate).
 * **Key Test Suites:**
   * `project.test.ts`: Validation of project record creation, recency sorting, and snapshot serialization.
   * `scenario.test.ts`: End-to-end integration test of an L-shaped field with pond exclusion, verifying sorties, passes, volumes, and readiness gating.

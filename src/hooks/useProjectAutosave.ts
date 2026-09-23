@@ -28,6 +28,8 @@ export function useProjectAutosave() {
   const spacingOverrideM = useFieldStore((s) => s.spacingOverrideM)
   const headLock = useFieldStore((s) => s.headLock)
   const planOffsetLocal = useFieldStore((s) => s.planOffsetLocal)
+  const planSplitPercent = useFieldStore((s) => s.planSplitPercent)
+  const planSplitFromEnd = useFieldStore((s) => s.planSplitFromEnd)
   const activeProjectId = useFieldStore((s) => s.activeProjectId)
   const activeProjectName = useFieldStore((s) => s.activeProjectName)
   const setActiveProject = useFieldStore((s) => s.setActiveProject)
@@ -63,7 +65,18 @@ export function useProjectAutosave() {
 
   useEffect(() => {
     if (!resumedRef.current) return // don't let the debounced autosave below race the initial resume and overwrite it with a blank session
-    const snapshot = { boundary, originalBoundary, noSprayZones, droneProfile, sweepStrategy, spacingOverrideM, headLock, planOffsetLocal }
+    const snapshot = {
+      boundary,
+      originalBoundary,
+      noSprayZones,
+      droneProfile,
+      sweepStrategy,
+      spacingOverrideM,
+      headLock,
+      planOffsetLocal,
+      planSplitPercent,
+      planSplitFromEnd,
+    }
 
     const timer = window.setTimeout(() => {
       if (!activeProjectId) {
@@ -101,6 +114,8 @@ export function useProjectAutosave() {
     spacingOverrideM,
     headLock,
     planOffsetLocal,
+    planSplitPercent,
+    planSplitFromEnd,
     activeProjectId,
     activeProjectName,
     setActiveProject,

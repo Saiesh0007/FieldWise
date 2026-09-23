@@ -164,3 +164,46 @@ export function translateSprayPlan(plan: SprayPlan, offset: LocalPoint): SprayPl
     })),
   }
 }
+
+/**
+ * The mission's actual start point — where the flight path begins (the
+ * first pass's start point), not necessarily the boundary's first
+ * vertex. Null for an empty plan (e.g. a fully-excluded field).
+ */
+export function planStartPoint(plan: SprayPlan): LocalPoint | null {
+  return plan.sorties[0]?.passes[0]?.start ?? null
+}
+
+/** The mission's actual finish point — the last pass's end point, in the last sortie. Null for an empty plan. */
+export function planFinishPoint(plan: SprayPlan): LocalPoint | null {
+  const lastSortie = plan.sorties[plan.sorties.length - 1]
+  const lastPass = lastSortie?.passes[lastSortie.passes.length - 1]
+  return lastPass?.end ?? null
+}
+
+export interface PlanSplit {
+  /** The portion of the route this sortie is meant to fly (AeroGCS Green's "yellow" line). */
+  included: SprayPass[]
+  /** The portion deferred to a later battery/sortie ("blue" line) — not flown this pass. */
+  excluded: SprayPass[]
+}
+
+/**
+ * "Plan Splitting" (AeroGCS Green §11.8) — lets a pilot manually mark
+ * the first (or last) `percent`% of the plan's passes, by pass count
+ * in flight order across every sortie, as the portion to actually fly
+ * this battery, deferring the rest. Purely a display/upload-subset
+ * split on an already-generated plan — it doesn't recompute sorties,
+ * tank volumes, or timing, since a partial flight's own battery/tank
+ * accounting is a separate concern from "which passes."
+ */
+export function splitPlanPasses(plan: SprayPlan, percent: number, fromEnd: boolean): PlanSplit {
+  const allPasses = plan.sorties.flatMap((sortie) => sortie.passes)
+  if (percent >= 100 || allPasses.length === 0) return { included: allPasses, excluded: [] }
+  if (percent <= 0) return { included: [], excluded: allPasses }
+
+  const cutCount = Math.round((allPasses.length * percent) / 100)
+  return fromEnd
+    ? { included: allPasses.slice(allPasses.length - cutCount), excluded: allPasses.slice(0, allPasses.length - cutCount) }
+    : { included: allPasses.slice(0, cutCount), excluded: allPasses.slice(cutCount) }
+}

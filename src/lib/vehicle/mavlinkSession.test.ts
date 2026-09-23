@@ -24,6 +24,7 @@ import {
   MISSION_ACK,
   MISSION_COUNT,
   MISSION_ITEM_INT,
+  MISSION_ITEM_REACHED,
   MISSION_REQUEST_INT,
   MISSION_REQUEST_LIST,
   SET_MODE,
@@ -266,6 +267,15 @@ describe('MavlinkSession telemetry decoding', () => {
     // 89 = 0b01011001 does not.
     sendFromVehicle(session, HEARTBEAT, { customMode: 0, type: 2, autopilot: 3, baseMode: 89, systemStatus: 4, mavlinkVersion: 3 })
     expect(session.getTelemetry().armed).toBe(false)
+  })
+
+  it('decodes MISSION_ITEM_REACHED into lastReachedWaypointSeq — live mission progress toward the finish point', () => {
+    const { session } = setUp()
+    expect(session.getTelemetry().lastReachedWaypointSeq).toBeNull()
+    sendFromVehicle(session, MISSION_ITEM_REACHED, { seq: 0 })
+    expect(session.getTelemetry().lastReachedWaypointSeq).toBe(0)
+    sendFromVehicle(session, MISSION_ITEM_REACHED, { seq: 5 })
+    expect(session.getTelemetry().lastReachedWaypointSeq).toBe(5)
   })
 
   it('decodes SYS_STATUS battery voltage/remaining, normalizing the -1 "unknown" sentinel to null', () => {

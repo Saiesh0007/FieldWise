@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { DroneProfilePicker } from '@/components/panels/DroneProfilePicker'
 import { Button } from '@/components/ui/Button'
 import { StatCard } from '@/components/ui/StatCard'
+import { planFinishPoint, planStartPoint, splitPlanPasses } from '@/lib/geo/planner'
 import { useFieldStore } from '@/store/useFieldStore'
 
 interface PlanPanelProps {
@@ -28,6 +29,11 @@ export function PlanPanel({ cropRowTapActive, onStartCropRowTap, onCancelCropRow
   const planOffsetLocal = useFieldStore((s) => s.planOffsetLocal)
   const movePlan = useFieldStore((s) => s.movePlan)
   const resetPlanOffset = useFieldStore((s) => s.resetPlanOffset)
+  const planSplitPercent = useFieldStore((s) => s.planSplitPercent)
+  const planSplitFromEnd = useFieldStore((s) => s.planSplitFromEnd)
+  const setPlanSplitPercent = useFieldStore((s) => s.setPlanSplitPercent)
+  const setPlanSplitFromEnd = useFieldStore((s) => s.setPlanSplitFromEnd)
+  const resetPlanSplit = useFieldStore((s) => s.resetPlanSplit)
   const setStep = useFieldStore((s) => s.setStep)
   const lastRecomputeMs = useFieldStore((s) => s.lastRecomputeMs)
 
@@ -49,6 +55,10 @@ export function PlanPanel({ cropRowTapActive, onStartCropRowTap, onCancelCropRow
 
   const sprayPassCount = sprayPlan ? sprayPlan.sorties.reduce((sum, s) => sum + s.passes.filter((p) => p.spraying).length, 0) : 0
   const isFixedOrCropRow = sweepStrategy.kind === 'fixed-heading' || sweepStrategy.kind === 'crop-row'
+  const startPoint = sprayPlan ? planStartPoint(sprayPlan) : null
+  const finishPoint = sprayPlan ? planFinishPoint(sprayPlan) : null
+  const split = sprayPlan ? splitPlanPasses(sprayPlan, planSplitPercent, planSplitFromEnd) : null
+  const splitStats = { includedCount: split?.included.length ?? 0, totalCount: (split?.included.length ?? 0) + (split?.excluded.length ?? 0) }
 
   return (
     <div className="flex h-full flex-col gap-4 overflow-y-auto p-4">
@@ -221,6 +231,74 @@ export function PlanPanel({ cropRowTapActive, onStartCropRowTap, onCancelCropRow
           Displacement: {planOffsetLocal.x.toFixed(1)}m east, {planOffsetLocal.y.toFixed(1)}m north
         </p>
       </section>
+
+      <div className="h-px bg-(--border-subtle)" />
+
+      <section className="space-y-2">
+        <div className="flex items-center justify-between">
+          <h3 className="text-xs font-semibold uppercase tracking-wide text-(--text-muted)">Plan splitting</h3>
+          {planSplitPercent < 100 && (
+            <button type="button" className="text-xs text-danger hover:underline" onClick={resetPlanSplit}>
+              Reset
+            </button>
+          )}
+        </div>
+        <p className="text-xs text-(--text-secondary)">
+          Fly only part of the route this battery, deferring the rest to a later sortie — the excluded portion draws
+          in blue on the map.
+        </p>
+        <div className="flex gap-2">
+          <label className="flex flex-1 cursor-pointer items-center gap-1.5 text-xs text-(--text-primary)">
+            <input
+              type="radio"
+              className="h-3.5 w-3.5 accent-brand-600"
+              checked={!planSplitFromEnd}
+              onChange={() => setPlanSplitFromEnd(false)}
+            />
+            From start
+          </label>
+          <label className="flex flex-1 cursor-pointer items-center gap-1.5 text-xs text-(--text-primary)">
+            <input
+              type="radio"
+              className="h-3.5 w-3.5 accent-brand-600"
+              checked={planSplitFromEnd}
+              onChange={() => setPlanSplitFromEnd(true)}
+            />
+            From end
+          </label>
+        </div>
+        <div className="flex items-center gap-2">
+          <input
+            type="range"
+            min={0}
+            max={100}
+            step={5}
+            className="flex-1"
+            value={planSplitPercent}
+            onChange={(e) => setPlanSplitPercent(Number(e.target.value))}
+          />
+          <span className="w-10 shrink-0 text-right text-xs tabular-nums text-(--text-primary)">{planSplitPercent}%</span>
+        </div>
+        {sprayPlan && planSplitPercent < 100 && (
+          <p className="text-xs text-(--text-muted)">
+            {splitStats.includedCount} of {splitStats.totalCount} passes included this sortie.
+          </p>
+        )}
+      </section>
+
+      {sprayPlan && (startPoint || finishPoint) && (
+        <>
+          <div className="h-px bg-(--border-subtle)" />
+          <section className="space-y-1">
+            <h3 className="text-xs font-semibold uppercase tracking-wide text-(--text-muted)">Start &amp; finish</h3>
+            <p className="text-xs text-(--text-secondary)">
+              <span className="inline-block h-2 w-2 rounded-full bg-[#16a34a]" /> Start — where the flight path
+              begins. <span className="inline-block h-2 w-2 rounded-full bg-[#dc2626]" /> Finish — where it ends and
+              the mission is complete. Both are marked on the map.
+            </p>
+          </section>
+        </>
+      )}
 
       <div className="mt-auto pt-2">
         <Button variant="primary" className="w-full" disabled={!sprayPlan} onClick={() => setStep('simulate')}>

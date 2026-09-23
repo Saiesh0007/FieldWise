@@ -10,6 +10,7 @@ import { useEffect, useRef, useState } from 'react'
 import { PhoneFrameOverlay } from '@/components/map/PhoneFrameOverlay'
 import { Button } from '@/components/ui/Button'
 import { circleToPolygon } from '@/lib/geo/circleObstacle'
+import { planFinishPoint, planStartPoint, splitPlanPasses } from '@/lib/geo/planner'
 import { createLocalProjection, type LocalProjection } from '@/lib/geo/projection'
 import { SAMPLE_FIELD_CENTER } from '@/lib/geo/sampleField'
 import type { FieldBoundary, LatLng, NoSprayZone, SprayPlan } from '@/lib/geo/types'
@@ -24,6 +25,7 @@ import {
   heatmapToFeatureCollection,
   latLngLineFeature,
   latLngPointFeature,
+  passesToLineFeatureCollection,
   polygonFeatureFromRing,
   sprayPlanToFeatureCollections,
   zonesToFeatureCollection,
@@ -55,6 +57,9 @@ const SOURCE = {
   circlePreview: 'circle-preview',
   circleCenterPoint: 'circle-center-point',
   zoneEditHandles: 'zone-edit-handles',
+  excludedLines: 'excluded-lines',
+  startPoint: 'start-point',
+  finishPoint: 'finish-point',
 } as const
 
 export type DrawTarget = 'boundary' | 'zone' | 'circle-zone' | null
@@ -74,6 +79,9 @@ interface FieldMapProps {
   boundary: FieldBoundary | null
   noSprayZones: NoSprayZone[]
   sprayPlan: SprayPlan | null
+  /** Plan Splitting (§11.8) — what fraction of the route (and from which end) to mark included; 100 (default) draws the whole plan with no split highlight. */
+  planSplitPercent?: number
+  planSplitFromEnd?: boolean
   projection: LocalProjection | null
   selectedEdgeId: string | null
   onSelectEdge: (edgeId: string | null) => void
@@ -201,6 +209,8 @@ export function FieldMap({
   boundary,
   noSprayZones,
   sprayPlan,
+  planSplitPercent = 100,
+  planSplitFromEnd = false,
   projection,
   selectedEdgeId,
   onSelectEdge,
@@ -558,6 +568,36 @@ export function FieldMap({
           'circle-stroke-color': '#164f46',
           'circle-stroke-width': 3,
         },
+      })
+
+      // Plan Splitting (§11.8): the portion of the route deferred to a
+      // later battery, drawn in blue over the spray/transit lines —
+      // AeroGCS Green's own "blue = excluded, yellow = intended" convention.
+      map.addSource(SOURCE.excludedLines, { type: 'geojson', data: EMPTY_FEATURE_COLLECTION })
+      map.addLayer({
+        id: 'excluded-lines-layer',
+        type: 'line',
+        source: SOURCE.excludedLines,
+        layout: { 'line-cap': 'round' },
+        paint: { 'line-color': '#2563eb', 'line-width': 3 },
+      })
+
+      // Start/Finish — where the mission's flight path actually begins
+      // and ends (the first pass's start, the last pass's end), distinct
+      // from the plain launch/refill home-point marker above.
+      map.addSource(SOURCE.startPoint, { type: 'geojson', data: EMPTY_FEATURE_COLLECTION })
+      map.addLayer({
+        id: 'start-point-layer',
+        type: 'circle',
+        source: SOURCE.startPoint,
+        paint: { 'circle-radius': 8, 'circle-color': '#16a34a', 'circle-stroke-color': '#ffffff', 'circle-stroke-width': 2.5 },
+      })
+      map.addSource(SOURCE.finishPoint, { type: 'geojson', data: EMPTY_FEATURE_COLLECTION })
+      map.addLayer({
+        id: 'finish-point-layer',
+        type: 'circle',
+        source: SOURCE.finishPoint,
+        paint: { 'circle-radius': 8, 'circle-color': '#dc2626', 'circle-stroke-color': '#ffffff', 'circle-stroke-width': 2.5 },
       })
 
       // In-progress drawing (click-to-add or live GPS walk).
@@ -995,7 +1035,21 @@ export function FieldMap({
     } else {
       setData(map, SOURCE.homePoint, EMPTY_FEATURE_COLLECTION)
     }
-  }, [sprayPlan, projection, boundary, loaded])
+
+    if (sprayPlan && projection && sprayPlan.sorties.length > 0) {
+      const start = planStartPoint(sprayPlan)
+      const finish = planFinishPoint(sprayPlan)
+      setData(map, SOURCE.startPoint, start ? latLngPointFeature(projection.toLatLng(start)) : EMPTY_FEATURE_COLLECTION)
+      setData(map, SOURCE.finishPoint, finish ? latLngPointFeature(projection.toLatLng(finish)) : EMPTY_FEATURE_COLLECTION)
+
+      const { excluded } = splitPlanPasses(sprayPlan, planSplitPercent, planSplitFromEnd)
+      setData(map, SOURCE.excludedLines, passesToLineFeatureCollection(excluded, projection))
+    } else {
+      setData(map, SOURCE.startPoint, EMPTY_FEATURE_COLLECTION)
+      setData(map, SOURCE.finishPoint, EMPTY_FEATURE_COLLECTION)
+      setData(map, SOURCE.excludedLines, EMPTY_FEATURE_COLLECTION)
+    }
+  }, [sprayPlan, planSplitPercent, planSplitFromEnd, projection, boundary, loaded])
 
   // Blind vs. Sighted replay overlay: ground truth + active boundary outlines, and the heatmap itself.
   useEffect(() => {
@@ -1056,7 +1110,14 @@ export function FieldMap({
     const map = mapRef.current
     if (!map || !loaded) return
     const vis = (v: boolean) => (v ? 'visible' : 'none')
-    for (const id of ['spray-lines-layer', 'transit-lines-layer', 'home-point-layer']) {
+    for (const id of [
+      'spray-lines-layer',
+      'transit-lines-layer',
+      'home-point-layer',
+      'excluded-lines-layer',
+      'start-point-layer',
+      'finish-point-layer',
+    ]) {
       map.setLayoutProperty(id, 'visibility', vis(showPlan))
     }
   }, [showPlan, loaded])

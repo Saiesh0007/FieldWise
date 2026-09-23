@@ -488,6 +488,27 @@ export function SendPanel({ onCenterOnDrone }: SendPanelProps) {
               : `${uploadResult.mismatches.length} mismatch(es) — ${uploadResult.mismatches[0]?.reason ?? ''}`}
           </div>
         )}
+
+        {uploadResult && telemetry.lastReachedWaypointSeq !== null && (() => {
+          const total = uploadResult.uploadedCount
+          const reached = Math.min(telemetry.lastReachedWaypointSeq, total - 1)
+          const pct = total > 0 ? ((reached + 1) / total) * 100 : 0
+          const complete = reached >= total - 1
+          return (
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between text-xs text-(--text-secondary)">
+                <span>Mission progress — waypoint {reached + 1} of {total}</span>
+                <span>{pct.toFixed(0)}%</span>
+              </div>
+              <div className="h-2 overflow-hidden rounded-full bg-(--surface-panel-raised)">
+                <div className={clsx('h-full rounded-full', complete ? 'bg-success' : 'bg-brand-600')} style={{ width: `${pct}%` }} />
+              </div>
+              {complete && (
+                <p className="text-xs font-medium text-success">Finish point reached — mission 100% complete.</p>
+              )}
+            </div>
+          )
+        })()}
       </section>
 
       <div className="h-px bg-(--border-subtle)" />

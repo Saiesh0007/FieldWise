@@ -6,7 +6,7 @@
 import { circle } from '@turf/turf'
 import type { Feature, FeatureCollection, LineString, Point, Polygon } from 'geojson'
 import type { LocalProjection } from '@/lib/geo/projection'
-import type { FieldBoundary, LatLng, NoSprayZone, SprayPlan } from '@/lib/geo/types'
+import type { FieldBoundary, LatLng, NoSprayZone, SprayPass, SprayPlan } from '@/lib/geo/types'
 import type { ReplayHeatmap } from '@/lib/simulation/replay'
 
 function ringCoords(vertices: LatLng[]): [number, number][] {
@@ -119,6 +119,28 @@ export function sprayPlanToFeatureCollections(
   return {
     spray: { type: 'FeatureCollection', features: sprayFeatures },
     transit: { type: 'FeatureCollection', features: transitFeatures },
+  }
+}
+
+/** Plan Splitting (§11.8) — the excluded (deferred-to-a-later-battery) passes, drawn as plain lines regardless of spray/transit. */
+export function passesToLineFeatureCollection(passes: SprayPass[], projection: LocalProjection): FeatureCollection<LineString> {
+  return {
+    type: 'FeatureCollection',
+    features: passes.map((pass) => {
+      const start = projection.toLatLng(pass.start)
+      const end = projection.toLatLng(pass.end)
+      return {
+        type: 'Feature',
+        properties: {},
+        geometry: {
+          type: 'LineString',
+          coordinates: [
+            [start.lon, start.lat],
+            [end.lon, end.lat],
+          ],
+        },
+      }
+    }),
   }
 }
 

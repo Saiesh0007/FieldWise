@@ -37,6 +37,17 @@ export interface VehicleTelemetry {
   flightMode: string | null
   /** From HEARTBEAT.base_mode's MAV_MODE_FLAG_SAFETY_ARMED bit. Null until the first heartbeat arrives. */
   armed: boolean | null
+  /**
+   * The 0-indexed sequence number of the most recent waypoint the
+   * vehicle reports reaching (MISSION_ITEM_REACHED) — i.e. its live
+   * progress through whatever mission is currently loaded onboard, not
+   * necessarily the plan this session most recently uploaded. Null
+   * until the vehicle sends one. Reaching the last index of the
+   * mission this session uploaded is what "the finish point being
+   * reached, mission 100% complete" means in practice — see
+   * SendPanel.tsx.
+   */
+  lastReachedWaypointSeq: number | null
   /** From SYS_STATUS — null until that message has been seen at least once (it's not sent on every heartbeat cycle by every autopilot). */
   battery: {
     voltageV: number | null
@@ -67,6 +78,7 @@ export const EMPTY_TELEMETRY: VehicleTelemetry = {
   systemStatus: null,
   flightMode: null,
   armed: null,
+  lastReachedWaypointSeq: null,
   battery: null,
   altitudeM: null,
   headingDeg: null,

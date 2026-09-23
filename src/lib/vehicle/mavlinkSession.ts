@@ -35,6 +35,7 @@ import {
   MISSION_ACK,
   MISSION_COUNT,
   MISSION_ITEM_INT,
+  MISSION_ITEM_REACHED,
   MISSION_REQUEST,
   MISSION_REQUEST_INT,
   MISSION_REQUEST_LIST,
@@ -198,6 +199,9 @@ export class MavlinkSession {
       // primary position shown in the UI since it stays available on a
       // bench test even before the EKF fully settles.
       void frame
+    } else if (frame.msgId === MISSION_ITEM_REACHED.id) {
+      this.telemetry = { ...this.telemetry, lastReachedWaypointSeq: frame.fields.seq }
+      this.emitTelemetry()
     }
 
     const idx = this.frameWaiters.findIndex((w) => w.predicate(frame))

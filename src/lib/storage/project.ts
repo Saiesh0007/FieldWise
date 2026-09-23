@@ -20,6 +20,9 @@ export interface ProjectSnapshot {
   spacingOverrideM?: number | null
   headLock?: boolean
   planOffsetLocal?: LocalPoint
+  /** Plan Splitting (§11.8) — what fraction of the route (and from which end) is marked included. Optional, falls back to "100% / from start" (the whole route). */
+  planSplitPercent?: number
+  planSplitFromEnd?: boolean
 }
 
 export interface ProjectRecord {

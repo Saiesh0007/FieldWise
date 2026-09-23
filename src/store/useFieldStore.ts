@@ -60,6 +60,16 @@ interface FieldState {
   headLock: boolean
   /** Move Plan — an accumulated local-meter offset applied to the generated plan's passes only (not the boundary or zones) via `translateSprayPlan`. */
   planOffsetLocal: LocalPoint
+  /**
+   * Plan Splitting (§11.8) — a display/upload-subset split on the
+   * already-generated plan (see `splitPlanPasses`), not a recompute
+   * input: 100 means "fly the whole plan" (the default), lower values
+   * mark a prefix/suffix of the route as excluded this sortie. Pure UI
+   * state, so unlike spacingOverrideM/planOffsetLocal above it never
+   * touches `recompute()`.
+   */
+  planSplitPercent: number
+  planSplitFromEnd: boolean
 
   /** The boundary's local metric projection — recomputed (centered on the new centroid) whenever the boundary changes. */
   projection: LocalProjection | null
@@ -105,6 +115,11 @@ interface FieldState {
   movePlan: (dxM: number, dyM: number) => void
   /** Move Plan's reset — back to no offset. */
   resetPlanOffset: () => void
+  /** Plan Splitting (§11.8) — 0-100, what fraction of the route to mark included. */
+  setPlanSplitPercent: (percent: number) => void
+  setPlanSplitFromEnd: (fromEnd: boolean) => void
+  /** Plan Splitting's Reset — back to 100% (the whole route included). */
+  resetPlanSplit: () => void
   setSelectedEdgeId: (edgeId: string | null) => void
   /** "Walk a strip" / "Trim an edge" — both are this one delta merge, see lib/geo/delta.ts for why. */
   walkEdge: (edgeId: string, walkedPoints: LatLng[], accuracyM: number) => void
@@ -199,6 +214,8 @@ const initialState = {
   spacingOverrideM: null as number | null,
   headLock: false,
   planOffsetLocal: { x: 0, y: 0 } as LocalPoint,
+  planSplitPercent: 100,
+  planSplitFromEnd: false,
   projection: null as LocalProjection | null,
   sprayPlan: null as SprayPlan | null,
   planError: null as string | null,
@@ -270,6 +287,10 @@ export const useFieldStore = create<FieldState>((set) => ({
       return { planOffsetLocal, ...recompute({ ...state, planOffsetLocal }) }
     }),
 
+  setPlanSplitPercent: (planSplitPercent) => set({ planSplitPercent: Math.max(0, Math.min(100, planSplitPercent)) }),
+  setPlanSplitFromEnd: (planSplitFromEnd) => set({ planSplitFromEnd }),
+  resetPlanSplit: () => set({ planSplitPercent: 100, planSplitFromEnd: false }),
+
   setSelectedEdgeId: (selectedEdgeId) => set({ selectedEdgeId }),
 
   walkEdge: (edgeId, walkedPoints, accuracyM) =>
@@ -307,6 +328,8 @@ export const useFieldStore = create<FieldState>((set) => ({
       spacingOverrideM: null,
       headLock: false,
       planOffsetLocal: { x: 0, y: 0 },
+      planSplitPercent: 100,
+      planSplitFromEnd: false,
       selectedEdgeId: null,
       ...recompute({
         boundary: preset.boundary,
@@ -336,6 +359,8 @@ export const useFieldStore = create<FieldState>((set) => ({
       spacingOverrideM: snapshot.spacingOverrideM ?? null,
       headLock: snapshot.headLock ?? false,
       planOffsetLocal: snapshot.planOffsetLocal ?? { x: 0, y: 0 },
+      planSplitPercent: snapshot.planSplitPercent ?? 100,
+      planSplitFromEnd: snapshot.planSplitFromEnd ?? false,
       selectedEdgeId: null,
       currentStep: snapshot.boundary ? 'verify' : 'import',
       ...recompute(snapshot),

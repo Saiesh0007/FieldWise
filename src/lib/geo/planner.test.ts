@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { planSprayPath, translateSprayPlan } from './planner'
+import { planFinishPoint, planStartPoint, planSprayPath, splitPlanPasses, translateSprayPlan } from './planner'
 import type { DroneProfile, LocalPoint, SprayPass } from './types'
 
 const profile = (overrides: Partial<DroneProfile> = {}): DroneProfile => ({
@@ -273,5 +273,100 @@ describe('translateSprayPlan — Move Plan (AeroGCS Green §11.7)', () => {
       sweepStrategy: { kind: 'fixed-heading', headingDeg: 0 },
     })
     expect(translateSprayPlan(plan, { x: 0, y: 0 })).toBe(plan)
+  })
+})
+
+describe('planStartPoint / planFinishPoint', () => {
+  const square: LocalPoint[] = [
+    { x: 0, y: 0 },
+    { x: 100, y: 0 },
+    { x: 100, y: 100 },
+    { x: 0, y: 100 },
+  ]
+
+  it('returns the first pass\'s start and the last pass\'s end', () => {
+    const plan = planSprayPath({
+      boundaryLocal: square,
+      noSprayZonesLocal: [],
+      droneProfile: profile(),
+      sweepStrategy: { kind: 'fixed-heading', headingDeg: 0 },
+    })
+    const allPasses = plan.sorties.flatMap((s) => s.passes)
+
+    expect(planStartPoint(plan)).toEqual(allPasses[0].start)
+    expect(planFinishPoint(plan)).toEqual(allPasses[allPasses.length - 1].end)
+  })
+
+  it('returns null for an empty plan', () => {
+    const emptyPlan = planSprayPath({
+      boundaryLocal: square,
+      noSprayZonesLocal: [
+        [
+          { x: -10, y: -10 },
+          { x: 110, y: -10 },
+          { x: 110, y: 110 },
+          { x: -10, y: 110 },
+        ],
+      ], // a zone covering the whole field
+      droneProfile: profile(),
+      sweepStrategy: { kind: 'fixed-heading', headingDeg: 0 },
+    })
+    expect(emptyPlan.sorties).toHaveLength(0)
+    expect(planStartPoint(emptyPlan)).toBeNull()
+    expect(planFinishPoint(emptyPlan)).toBeNull()
+  })
+})
+
+describe('splitPlanPasses — Plan Splitting (AeroGCS Green §11.8)', () => {
+  const square: LocalPoint[] = [
+    { x: 0, y: 0 },
+    { x: 100, y: 0 },
+    { x: 100, y: 100 },
+    { x: 0, y: 100 },
+  ]
+
+  function buildPlan() {
+    return planSprayPath({
+      boundaryLocal: square,
+      noSprayZonesLocal: [],
+      droneProfile: profile({ tankL: 1000, enduranceMin: 999 }), // generous — a single sortie
+      sweepStrategy: { kind: 'fixed-heading', headingDeg: 0 },
+    })
+  }
+
+  it('at 100%, includes every pass and excludes none', () => {
+    const plan = buildPlan()
+    const allPasses = plan.sorties.flatMap((s) => s.passes)
+    const split = splitPlanPasses(plan, 100, false)
+    expect(split.included).toEqual(allPasses)
+    expect(split.excluded).toEqual([])
+  })
+
+  it('at 0%, excludes every pass and includes none', () => {
+    const plan = buildPlan()
+    const allPasses = plan.sorties.flatMap((s) => s.passes)
+    const split = splitPlanPasses(plan, 0, false)
+    expect(split.included).toEqual([])
+    expect(split.excluded).toEqual(allPasses)
+  })
+
+  it('splits from the start: included is a prefix, excluded is the matching suffix', () => {
+    const plan = buildPlan()
+    const allPasses = plan.sorties.flatMap((s) => s.passes)
+    const split = splitPlanPasses(plan, 50, false)
+
+    expect(split.included).toEqual(allPasses.slice(0, split.included.length))
+    expect(split.excluded).toEqual(allPasses.slice(split.included.length))
+    expect(split.included.length + split.excluded.length).toBe(allPasses.length)
+  })
+
+  it('splits from the end: included is a suffix, excluded is the matching prefix', () => {
+    const plan = buildPlan()
+    const allPasses = plan.sorties.flatMap((s) => s.passes)
+    const split = splitPlanPasses(plan, 50, true)
+
+    expect(split.included).toEqual(allPasses.slice(allPasses.length - split.included.length))
+    expect(split.excluded).toEqual(allPasses.slice(0, allPasses.length - split.included.length))
+    expect(split.included.length + split.excluded.length).toBe(allPasses.length)
   })
 })
