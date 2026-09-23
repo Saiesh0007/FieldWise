@@ -255,86 +255,88 @@ export function SendPanel({ onCenterOnDrone }: SendPanelProps) {
         </p>
       </div>
 
-      <div className="flex gap-2">
-        <label className="flex flex-1 cursor-pointer items-center gap-1.5 rounded-(--radius-control) border border-(--border-subtle) px-2.5 py-1.5 text-sm text-(--text-primary)">
-          <input
-            type="radio"
-            className="h-3.5 w-3.5 accent-brand-600"
-            checked={connectionMode === 'web-serial'}
-            disabled={connectionState !== 'disconnected' && connectionState !== 'error'}
-            onChange={() => setConnectionMode('web-serial')}
-          />
-          USB (Web Serial)
-        </label>
-        <label className="flex flex-1 cursor-pointer items-center gap-1.5 rounded-(--radius-control) border border-(--border-subtle) px-2.5 py-1.5 text-sm text-(--text-primary)">
-          <input
-            type="radio"
-            className="h-3.5 w-3.5 accent-brand-600"
-            checked={connectionMode === 'pi-relay'}
-            disabled={connectionState !== 'disconnected' && connectionState !== 'error'}
-            onChange={() => setConnectionMode('pi-relay')}
-          />
-          Pi bridge
-        </label>
-      </div>
-
-      {connectionMode === 'web-serial' && !webSerialSupported() && (
-        <div className="rounded-(--radius-card) border border-warning/30 bg-warning-bg p-3 text-xs text-warning">
-          Web Serial isn't available in this browser. Open this page in Chrome or Edge to connect a Pixhawk.
+      <section className="space-y-3 rounded-(--radius-card) border border-(--border-subtle) bg-(--surface-panel) p-3">
+        <div className="flex gap-2">
+          <label className="flex flex-1 cursor-pointer items-center gap-1.5 rounded-(--radius-control) border border-(--border-subtle) px-2.5 py-1.5 text-sm text-(--text-primary)">
+            <input
+              type="radio"
+              className="h-3.5 w-3.5 accent-brand-600"
+              checked={connectionMode === 'web-serial'}
+              disabled={connectionState !== 'disconnected' && connectionState !== 'error'}
+              onChange={() => setConnectionMode('web-serial')}
+            />
+            USB (Web Serial)
+          </label>
+          <label className="flex flex-1 cursor-pointer items-center gap-1.5 rounded-(--radius-control) border border-(--border-subtle) px-2.5 py-1.5 text-sm text-(--text-primary)">
+            <input
+              type="radio"
+              className="h-3.5 w-3.5 accent-brand-600"
+              checked={connectionMode === 'pi-relay'}
+              disabled={connectionState !== 'disconnected' && connectionState !== 'error'}
+              onChange={() => setConnectionMode('pi-relay')}
+            />
+            Pi bridge
+          </label>
         </div>
-      )}
 
-      {connectionMode === 'pi-relay' && (
-        <div className="space-y-1.5">
-          <input
-            type="text"
-            inputMode="url"
-            placeholder="ws://raspberrypi.local:8765"
-            className="w-full rounded-(--radius-control) border border-(--border-subtle) bg-(--surface-panel) px-2.5 py-1.5 text-sm transition-colors focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-100"
-            value={bridgeUrl}
-            disabled={connectionState !== 'disconnected' && connectionState !== 'error'}
-            onChange={(e) => {
-              setBridgeUrl(e.target.value)
-              try {
-                localStorage.setItem(BRIDGE_URL_STORAGE_KEY, e.target.value)
-              } catch {
-                /* private browsing / storage disabled — the address just won't be remembered next visit */
-              }
-            }}
-          />
-          <p className="text-xs text-(--text-muted)">
-            The address serial-ws-bridge.mjs printed when you started it on the Pi (run <code>hostname -I</code> on
-            the Pi if you don't know its address). Requires this browser's machine and the Pi to be on the same
-            network.
-          </p>
-        </div>
-      )}
-
-      <div className="flex items-center justify-between rounded-(--radius-card) border border-(--border-subtle) bg-(--surface-panel) p-3">
-        <span className={clsx('flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium', STATE_CLASSES[connectionState])}>
-          {connectionState === 'connecting' && <Spinner />}
-          {STATE_LABEL[connectionState]}
-        </span>
-        {connectionState === 'connected' ? (
-          <Button size="sm" variant="secondary" onClick={() => void vehicle.disconnect()}>
-            Disconnect
-          </Button>
-        ) : (
-          <Button
-            size="sm"
-            variant="primary"
-            disabled={
-              connectionState === 'connecting' ||
-              (connectionMode === 'web-serial' && !webSerialSupported()) ||
-              (connectionMode === 'pi-relay' && bridgeUrl.trim() === '')
-            }
-            onClick={handleConnect}
-          >
-            Connect Pixhawk
-          </Button>
+        {connectionMode === 'web-serial' && !webSerialSupported() && (
+          <div className="rounded-(--radius-card) border border-warning/30 bg-warning-bg p-3 text-xs text-warning">
+            Web Serial isn't available in this browser. Open this page in Chrome or Edge to connect a Pixhawk.
+          </div>
         )}
-      </div>
-      {connectError && <p className="text-xs text-danger">{connectError}</p>}
+
+        {connectionMode === 'pi-relay' && (
+          <div className="space-y-1.5">
+            <input
+              type="text"
+              inputMode="url"
+              placeholder="ws://raspberrypi.local:8765"
+              className="w-full rounded-(--radius-control) border border-(--border-subtle) bg-(--surface-panel) px-2.5 py-1.5 text-sm transition-colors focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-100"
+              value={bridgeUrl}
+              disabled={connectionState !== 'disconnected' && connectionState !== 'error'}
+              onChange={(e) => {
+                setBridgeUrl(e.target.value)
+                try {
+                  localStorage.setItem(BRIDGE_URL_STORAGE_KEY, e.target.value)
+                } catch {
+                  /* private browsing / storage disabled — the address just won't be remembered next visit */
+                }
+              }}
+            />
+            <p className="text-xs text-(--text-muted)">
+              The address serial-ws-bridge.mjs printed when you started it on the Pi (run <code>hostname -I</code>{' '}
+              on the Pi if you don't know its address). Requires this browser's machine and the Pi to be on the
+              same network.
+            </p>
+          </div>
+        )}
+
+        <div className="flex items-center justify-between">
+          <span className={clsx('flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium', STATE_CLASSES[connectionState])}>
+            {connectionState === 'connecting' && <Spinner />}
+            {STATE_LABEL[connectionState]}
+          </span>
+          {connectionState === 'connected' ? (
+            <Button size="sm" variant="secondary" onClick={() => void vehicle.disconnect()}>
+              Disconnect
+            </Button>
+          ) : (
+            <Button
+              size="sm"
+              variant="primary"
+              disabled={
+                connectionState === 'connecting' ||
+                (connectionMode === 'web-serial' && !webSerialSupported()) ||
+                (connectionMode === 'pi-relay' && bridgeUrl.trim() === '')
+              }
+              onClick={handleConnect}
+            >
+              Connect Pixhawk
+            </Button>
+          )}
+        </div>
+        {connectError && <p className="text-xs text-danger">{connectError}</p>}
+      </section>
 
       {connectionState === 'connected' && (
         <section className="space-y-2 rounded-(--radius-card) border border-(--border-subtle) bg-(--surface-panel) p-3">
@@ -488,9 +490,7 @@ export function SendPanel({ onCenterOnDrone }: SendPanelProps) {
         </section>
       )}
 
-      <div className="h-px bg-(--border-subtle)" />
-
-      <section className="space-y-2">
+      <section className="space-y-2 rounded-(--radius-card) border border-(--border-subtle) bg-(--surface-panel) p-3">
         <h3 className="text-xs font-semibold uppercase tracking-wide text-(--text-muted)">Upload mission</h3>
         <p className="text-xs text-(--text-secondary)">
           {isSplitActive
@@ -544,9 +544,7 @@ export function SendPanel({ onCenterOnDrone }: SendPanelProps) {
         })()}
       </section>
 
-      <div className="h-px bg-(--border-subtle)" />
-
-      <section className="space-y-1">
+      <section className="space-y-1 rounded-(--radius-card) border border-(--border-subtle) bg-(--surface-panel) p-3">
         <h3 className="text-xs font-semibold uppercase tracking-wide text-(--text-muted)">Log</h3>
         <div className="max-h-32 space-y-0.5 overflow-y-auto rounded-(--radius-control) bg-ink-900 p-2 font-mono text-[10px] text-ink-100">
           {logLines.length === 0 ? <div className="text-ink-500">—</div> : logLines.map((line, i) => <div key={i}>{line}</div>)}

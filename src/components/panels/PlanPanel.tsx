@@ -15,6 +15,9 @@ const MIN_SPACING_M = 2
 const MAX_SPACING_M = 10
 const MOVE_PLAN_STEP_M = 1
 
+/** The card treatment every editing section below shares — matches Send to Vehicle's Live Telemetry/Flight Controls boxes, so the two sidebars read consistently. */
+const SECTION_CARD = 'space-y-2 rounded-(--radius-card) border border-(--border-subtle) bg-(--surface-panel) p-3'
+
 export function PlanPanel({ cropRowTapActive, onStartCropRowTap, onCancelCropRowTap }: PlanPanelProps) {
   const boundary = useFieldStore((s) => s.boundary)
   const sprayPlan = useFieldStore((s) => s.sprayPlan)
@@ -85,13 +88,11 @@ export function PlanPanel({ cropRowTapActive, onStartCropRowTap, onCancelCropRow
       )}
       {lastRecomputeMs !== null && <div className="text-[11px] text-(--text-muted)">Re-planned in {lastRecomputeMs.toFixed(1)}ms</div>}
 
-      <div className="h-px bg-(--border-subtle)" />
+      <div className={SECTION_CARD}>
+        <DroneProfilePicker />
+      </div>
 
-      <DroneProfilePicker />
-
-      <div className="h-px bg-(--border-subtle)" />
-
-      <section className="space-y-2">
+      <section className={SECTION_CARD}>
         <h3 className="text-xs font-semibold uppercase tracking-wide text-(--text-muted)">Route adjust — heading</h3>
         <div className="flex items-center gap-2">
           <label className="flex cursor-pointer items-center gap-1.5 text-sm text-(--text-primary)">
@@ -164,9 +165,7 @@ export function PlanPanel({ cropRowTapActive, onStartCropRowTap, onCancelCropRow
         )}
       </section>
 
-      <div className="h-px bg-(--border-subtle)" />
-
-      <section className="space-y-2">
+      <section className={SECTION_CARD}>
         <div className="flex items-center justify-between">
           <h3 className="text-xs font-semibold uppercase tracking-wide text-(--text-muted)">Adjust spacing</h3>
           <label className="flex cursor-pointer items-center gap-1.5 text-xs text-(--text-secondary)">
@@ -197,9 +196,7 @@ export function PlanPanel({ cropRowTapActive, onStartCropRowTap, onCancelCropRow
         )}
       </section>
 
-      <div className="h-px bg-(--border-subtle)" />
-
-      <section className="space-y-2">
+      <section className={SECTION_CARD}>
         <div className="flex items-center justify-between">
           <h3 className="text-xs font-semibold uppercase tracking-wide text-(--text-muted)">Move plan</h3>
           {(planOffsetLocal.x !== 0 || planOffsetLocal.y !== 0) && (
@@ -232,9 +229,7 @@ export function PlanPanel({ cropRowTapActive, onStartCropRowTap, onCancelCropRow
         </p>
       </section>
 
-      <div className="h-px bg-(--border-subtle)" />
-
-      <section className="space-y-2">
+      <section className={SECTION_CARD}>
         <div className="flex items-center justify-between">
           <h3 className="text-xs font-semibold uppercase tracking-wide text-(--text-muted)">Plan splitting</h3>
           {planSplitPercent < 100 && (
@@ -296,16 +291,13 @@ export function PlanPanel({ cropRowTapActive, onStartCropRowTap, onCancelCropRow
       </section>
 
       {sprayPlan && (startPoint || finishPoint) && (
-        <>
-          <div className="h-px bg-(--border-subtle)" />
-          <section className="space-y-1">
-            <h3 className="text-xs font-semibold uppercase tracking-wide text-(--text-muted)">Start &amp; finish</h3>
-            <p className="text-xs text-(--text-secondary)">
-              Both marked in green on the map — <span className="font-semibold">S</span> where the flight path
-              begins, <span className="font-semibold">F</span> where it ends and the mission is complete.
-            </p>
-          </section>
-        </>
+        <section className={SECTION_CARD}>
+          <h3 className="text-xs font-semibold uppercase tracking-wide text-(--text-muted)">Start &amp; finish</h3>
+          <p className="text-xs text-(--text-secondary)">
+            Both marked in green on the map — <span className="font-semibold">S</span> where the flight path
+            begins, <span className="font-semibold">F</span> where it ends and the mission is complete.
+          </p>
+        </section>
       )}
 
       <div className="mt-auto pt-2">

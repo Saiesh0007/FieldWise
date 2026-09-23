@@ -21,8 +21,17 @@ interface SimulatePanelProps {
 type ReplayView = 'blind' | 'sighted'
 
 const ANIMATION_TICK_MS = 70
-/** How long a full start-to-finish preview takes, regardless of the route's real length — a 13km plan flown at drone speed would take the better part of an hour, which isn't useful as an on-screen preview. */
-const FLIGHT_PREVIEW_DURATION_S = 18
+/**
+ * How long a full start-to-finish preview takes — scaled from the
+ * plan's own estimated flight time (roughly 1 preview second per real
+ * minute), clamped to a sane on-screen range. A fixed duration
+ * regardless of route length either crawled for a short route or
+ * blurred past for a long one; a 13km/~50min plan at real drone speed
+ * would take the better part of an hour to preview literally, which
+ * isn't useful either — this is a middle ground, not real-time.
+ */
+const MIN_FLIGHT_PREVIEW_DURATION_S = 15
+const MAX_FLIGHT_PREVIEW_DURATION_S = 60
 
 interface SessionScenario extends SessionBlindVsSighted {
   groundTruthLatLng: LatLng[]
@@ -53,6 +62,9 @@ export function SimulatePanel({ onOverlayChange, onDronePositionChange }: Simula
     return buildFlightPath(trimBookendingTransitLegs(sprayPlan.sorties.flatMap((s) => s.passes)))
   }, [sprayPlan])
   const flightPathLengthM = totalFlightPathLengthM(flightPath)
+  const previewDurationS = sprayPlan
+    ? Math.min(MAX_FLIGHT_PREVIEW_DURATION_S, Math.max(MIN_FLIGHT_PREVIEW_DURATION_S, sprayPlan.totalEstimatedMinutes))
+    : MIN_FLIGHT_PREVIEW_DURATION_S
   const [previewDistanceM, setPreviewDistanceM] = useState(0)
   const [previewPlaying, setPreviewPlaying] = useState(false)
 
@@ -71,10 +83,10 @@ export function SimulatePanel({ onOverlayChange, onDronePositionChange }: Simula
       setPreviewPlaying(false)
       return
     }
-    const perTickM = flightPathLengthM / ((FLIGHT_PREVIEW_DURATION_S * 1000) / ANIMATION_TICK_MS)
+    const perTickM = flightPathLengthM / ((previewDurationS * 1000) / ANIMATION_TICK_MS)
     const timer = setTimeout(() => setPreviewDistanceM((d) => Math.min(d + perTickM, flightPathLengthM)), ANIMATION_TICK_MS)
     return () => clearTimeout(timer)
-  }, [previewPlaying, previewDistanceM, flightPathLengthM])
+  }, [previewPlaying, previewDistanceM, flightPathLengthM, previewDurationS])
 
   // Push the drone's current position/heading up to FieldMap.
   useEffect(() => {
