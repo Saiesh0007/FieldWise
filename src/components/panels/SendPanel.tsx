@@ -360,7 +360,7 @@ export function SendPanel({ onCenterOnDrone }: SendPanelProps) {
             </div>
           )}
 
-          <div className="flex items-center gap-3">
+          <div className="flex items-center justify-center gap-4">
             {telemetry.attitude ? (
               <AttitudeIndicator rollDeg={telemetry.attitude.rollDeg} pitchDeg={telemetry.attitude.pitchDeg} />
             ) : (
@@ -369,31 +369,32 @@ export function SendPanel({ onCenterOnDrone }: SendPanelProps) {
               </div>
             )}
             {telemetry.headingDeg !== null && <HeadingCompass headingDeg={telemetry.headingDeg} />}
-            <div className="grid flex-1 grid-cols-2 gap-2">
-              <StatCard
-                label="GPS fix"
-                value={telemetry.gps.fixType}
-                hint={telemetry.gps.satellites !== null ? `${telemetry.gps.satellites} sats` : undefined}
-              />
-              <StatCard label="HDOP" value={telemetry.gps.hdop !== null ? telemetry.gps.hdop.toFixed(1) : '—'} />
-              {telemetry.attitude && (
-                <>
-                  <StatCard label="Roll" value={telemetry.attitude.rollDeg.toFixed(0)} unit="°" />
-                  <StatCard label="Pitch" value={telemetry.attitude.pitchDeg.toFixed(0)} unit="°" />
-                </>
-              )}
-            </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-2">
+          <div className="grid grid-cols-2 gap-1.5">
             <StatCard
+              compact
+              label="GPS fix"
+              value={telemetry.gps.fixType}
+              hint={telemetry.gps.satellites !== null ? `${telemetry.gps.satellites} sats` : undefined}
+            />
+            <StatCard compact label="HDOP" value={telemetry.gps.hdop !== null ? telemetry.gps.hdop.toFixed(1) : '—'} />
+            {telemetry.attitude && (
+              <>
+                <StatCard compact label="Roll" value={telemetry.attitude.rollDeg.toFixed(0)} unit="°" />
+                <StatCard compact label="Pitch" value={telemetry.attitude.pitchDeg.toFixed(0)} unit="°" />
+              </>
+            )}
+            <StatCard
+              compact
               label="Battery"
               value={telemetry.battery?.voltageV !== null && telemetry.battery?.voltageV !== undefined ? telemetry.battery.voltageV.toFixed(1) : '—'}
               unit="V"
               hint={telemetry.battery?.remainingPct !== null && telemetry.battery?.remainingPct !== undefined ? `${telemetry.battery.remainingPct}% remaining` : undefined}
             />
-            <StatCard label="Altitude" value={telemetry.altitudeM !== null ? telemetry.altitudeM.toFixed(1) : '—'} unit="m AGL" />
+            <StatCard compact label="Altitude" value={telemetry.altitudeM !== null ? telemetry.altitudeM.toFixed(1) : '—'} unit="m AGL" />
             <StatCard
+              compact
               label="Wind"
               value={telemetry.wind ? telemetry.wind.speedMps.toFixed(1) : '—'}
               unit={telemetry.wind ? 'm/s' : undefined}
