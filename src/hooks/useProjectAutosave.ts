@@ -1,17 +1,25 @@
 import { useEffect, useRef } from 'react'
 import { createProjectRecord, touchProjectRecord, type ProjectRecord } from '@/lib/storage/project'
-import { getActiveProjectId, getProject, putProject, setActiveProjectId } from '@/lib/storage/projectDb'
+import { putProject, setActiveProjectId } from '@/lib/storage/projectDb'
 import { useFieldStore } from '@/store/useFieldStore'
 
 const AUTOSAVE_DEBOUNCE_MS = 600
 
 /**
- * Resumes the last-open project on load, and transparently autosaves
- * from then on — no "Save" button anywhere, matching how the rest of
- * FieldWise already works (every edit re-plans and re-renders
- * immediately; a project is just "the session," persisted).
+ * Transparently autosaves the current session — no "Save" button
+ * anywhere, matching how the rest of FieldWise already works (every edit
+ * re-plans and re-renders immediately; a project is just "the session,"
+ * persisted).
  *
- * The one deliberate exception: opening the app and never touching
+ * Deliberately does *not* resume the last-open project on launch — every
+ * fresh app start begins from a blank "Untitled Project," even if a
+ * previous session left one active. Reopening a specific saved project
+ * is the Projects panel's job (`ProjectsPanel.tsx`'s `openProject`),
+ * which explicitly loads a snapshot and sets it active; this hook only
+ * ever autosaves whatever the *current* session becomes, it never reaches
+ * backward into IndexedDB to decide what that session should start as.
+ *
+ * The one other deliberate exception: opening the app and never touching
  * anything creates nothing. A project is only lazily created (named
  * "Untitled Project") on the pilot's first real action that produces a
  * boundary — otherwise every idle visit would leave behind an empty
@@ -33,38 +41,10 @@ export function useProjectAutosave() {
   const activeProjectId = useFieldStore((s) => s.activeProjectId)
   const activeProjectName = useFieldStore((s) => s.activeProjectName)
   const setActiveProject = useFieldStore((s) => s.setActiveProject)
-  const loadProjectSnapshot = useFieldStore((s) => s.loadProjectSnapshot)
 
   const recordRef = useRef<ProjectRecord | null>(null)
-  const resumedRef = useRef(false)
-
-  // Resume the remembered active project, once, on mount.
-  useEffect(() => {
-    const id = getActiveProjectId()
-    if (!id) {
-      resumedRef.current = true
-      return
-    }
-    getProject(id)
-      .then((record) => {
-        if (record) {
-          recordRef.current = record
-          loadProjectSnapshot(record.id, record.name, record.snapshot)
-        } else {
-          setActiveProjectId(null) // the remembered project was deleted elsewhere — don't keep pointing at nothing
-        }
-      })
-      .catch(() => {
-        // IndexedDB unavailable (private browsing, storage disabled) — fall back to an unsaved session rather than block the app.
-      })
-      .finally(() => {
-        resumedRef.current = true
-      })
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- resume-once, deliberately not re-run on every render
-  }, [])
 
   useEffect(() => {
-    if (!resumedRef.current) return // don't let the debounced autosave below race the initial resume and overwrite it with a blank session
     const snapshot = {
       boundary,
       originalBoundary,
