@@ -99,7 +99,7 @@ The application guides the operator through an intuitive 6-stage lifecycle repre
 * **Geospatial Math & GIS:** `proj4` (Local Azimuthal Equidistant `aeqd`), `@turf/turf`, `polygon-clipping`.
 * **State Management & Storage:** Zustand 5.0 with synchronous atomic `recompute()` pipeline, IndexedDB (`fieldwise-projects`), Cache API (`fieldwise-satellite-tiles-v1`).
 * **Hardware & Protocols:** Web Serial API (`navigator.serial`) or a Raspberry Pi WebSocket bridge, custom TypeScript MAVLink 1.0/2.0 codec with 17 supported message definitions.
-* **Code Quality & Testing:** Vitest (27 suites, 225 tests passing), Oxlint.
+* **Code Quality & Testing:** Vitest (27 suites, 229 tests passing), Oxlint.
 
 ---
 

@@ -8,6 +8,7 @@ import {
   renameProjectRecord,
   sortProjectsByRecency,
   touchProjectRecord,
+  uniqueProjectName,
   type ProjectSnapshot,
 } from './project'
 
@@ -103,6 +104,27 @@ describe('sortProjectsByRecency', () => {
     const input = [a, b]
     sortProjectsByRecency(input)
     expect(input).toEqual([a, b])
+  })
+})
+
+describe('uniqueProjectName', () => {
+  it('returns the base name unchanged when nothing else uses it', () => {
+    expect(uniqueProjectName('Untitled Project', [])).toBe('Untitled Project')
+    expect(uniqueProjectName('Untitled Project', ['North 40'])).toBe('Untitled Project')
+  })
+
+  it('appends " 2" when the base name is already taken', () => {
+    expect(uniqueProjectName('Untitled Project', ['Untitled Project'])).toBe('Untitled Project 2')
+  })
+
+  it('finds the next free number when several are already taken', () => {
+    expect(uniqueProjectName('Untitled Project', ['Untitled Project', 'Untitled Project 2', 'Untitled Project 3'])).toBe(
+      'Untitled Project 4',
+    )
+  })
+
+  it('fills a gap left by a renamed/deleted project rather than always incrementing past it', () => {
+    expect(uniqueProjectName('Untitled Project', ['Untitled Project', 'Untitled Project 3'])).toBe('Untitled Project 2')
   })
 })
 

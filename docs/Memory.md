@@ -263,6 +263,12 @@ This document captures historical context, Architectural Decision Records (ADRs)
 * **Consequences:**
   * *Pros:* Matches the report exactly — verified with a same-browser-context Playwright run: session 1 loads the sample field (header reads "Untitled Project"), a page reload (simulating "starting the software again") lands back on Import's empty "Load sample field" prompt, not the previous session's boundary. Full test suite and typecheck unaffected (this hook has no unit tests of its own — it's a side-effecting React hook, not a pure function per Rule 2 — so nothing to update there).
   * *Cons:* This is a genuine trade-off against ADR-006's original motivation, not a strict improvement — a pilot who refreshes the browser mid-edit (accidentally or otherwise) without having triggered an autosave tick yet (the 600ms debounce) now loses that in-progress, unsaved work instead of picking back up where they left off, where before a refresh was safe by design. Explicitly accepted here because that's what was asked for; worth flagging back to the pilot if a future report reads like "I refreshed and lost my edits," since that's this decision's direct and known cost, not a new bug.
+  * **Immediate same-session follow-on bug, fixed below (ADR-020a):** removing the boot resume meant every fresh session's lazy first-edit autosave now creates its *own* "Untitled Project" — so simply relaunching the app and doing the demo flow ("Load sample field") more than once piles up multiple records that all share that exact default name, reported as "2 same projects are getting created of same name." A direct, foreseeable consequence of this ADR's own trade-off, not a separate root cause.
+
+**ADR-020a: Disambiguate Default Project Names on Create**
+* New pure `uniqueProjectName(baseName, existingNames)` (`lib/storage/project.ts`) — returns `baseName` unchanged if nothing else already has it, otherwise the lowest-numbered `"baseName N"` that's free (filling a gap left by a renamed/deleted project rather than always counting up past it). Wired into both places a project gets its (possibly default) name: `useProjectAutosave.ts`'s lazy first-edit create (now looks up `listProjects()` before creating, so it never collides with an existing record — including ones from earlier sessions, exactly the ADR-020 scenario) and `ProjectsPanel.tsx`'s "+ New Project" flow when submitted with a blank name (disambiguated synchronously against the panel's already-loaded `projects` list, no extra IndexedDB round trip needed there).
+* 4 new tests (`project.test.ts`) — 229 total now. Browser-verified: two separate simulated app launches (full page reload between them) that each load the sample field now produce "Untitled Project" and "Untitled Project 2," not two identically-named records; a blank-named "+ New Project" against an existing "Untitled Project" correctly produces "Untitled Project 2" as well.
+* **Known gap:** this prevents *new* collisions going forward; it does not merge or rename any duplicate-named records a pilot already has sitting in IndexedDB from before this fix shipped (their own Rename/Delete in the Projects panel is how those get cleaned up — no automatic migration was written, since deciding which of two same-named records to keep isn't something this code can safely guess).
 
 ---
 
@@ -294,7 +300,7 @@ This document captures historical context, Architectural Decision Records (ADRs)
 
 * **Command:** `npm test`
 * **Test Runner:** Vitest v5.0
-* **Status:** 27 test files, 225 tests passing (100% success rate).
+* **Status:** 27 test files, 229 tests passing (100% success rate).
 * **Key Test Suites:**
   * `project.test.ts`: Validation of project record creation, recency sorting, and snapshot serialization.
   * `scenario.test.ts`: End-to-end integration test of an L-shaped field with pond exclusion, verifying sorties, passes, volumes, and readiness gating.

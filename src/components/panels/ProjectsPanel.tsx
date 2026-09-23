@@ -6,6 +6,7 @@ import {
   describeProjectSnapshot,
   renameProjectRecord,
   sortProjectsByRecency,
+  uniqueProjectName,
   type ProjectRecord,
 } from '@/lib/storage/project'
 import { deleteProject, getActiveProjectId, listProjects, putProject, setActiveProjectId } from '@/lib/storage/projectDb'
@@ -63,7 +64,7 @@ export function ProjectsPanel({ open, onClose }: ProjectsPanelProps) {
   }
 
   const createProject = async () => {
-    const name = newName.trim() || 'Untitled Project'
+    const name = uniqueProjectName(newName.trim() || 'Untitled Project', projects.map((p) => p.name))
     const record = createProjectRecord(
       { boundary: null, noSprayZones: [], droneProfile: DEFAULT_DRONE_PROFILE, sweepStrategy: { kind: 'min-turns' } },
       name,

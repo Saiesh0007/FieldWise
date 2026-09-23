@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react'
-import { createProjectRecord, touchProjectRecord, type ProjectRecord } from '@/lib/storage/project'
-import { putProject, setActiveProjectId } from '@/lib/storage/projectDb'
+import { createProjectRecord, touchProjectRecord, uniqueProjectName, type ProjectRecord } from '@/lib/storage/project'
+import { listProjects, putProject, setActiveProjectId } from '@/lib/storage/projectDb'
 import { useFieldStore } from '@/store/useFieldStore'
 
 const AUTOSAVE_DEBOUNCE_MS = 600
@@ -61,11 +61,21 @@ export function useProjectAutosave() {
     const timer = window.setTimeout(() => {
       if (!activeProjectId) {
         if (!boundary) return // nothing worth persisting yet
-        const created = createProjectRecord(snapshot, activeProjectName)
-        recordRef.current = created
-        putProject(created).then(() => {
-          setActiveProjectId(created.id)
-          setActiveProject(created.id, created.name)
+        // Every fresh launch starts with activeProjectName at its default
+        // (ADR-020 — no boot-time resume), so without this check every
+        // session that does the "just start clicking" demo flow would
+        // lazily create another project sharing that exact same default
+        // name. Disambiguate against whatever's already saved before
+        // creating, the same way a file manager avoids two files named
+        // identically in one folder.
+        listProjects().then((existing) => {
+          const name = uniqueProjectName(activeProjectName, existing.map((r) => r.name))
+          const created = createProjectRecord(snapshot, name)
+          recordRef.current = created
+          return putProject(created).then(() => {
+            setActiveProjectId(created.id)
+            setActiveProject(created.id, created.name)
+          })
         })
         return
       }

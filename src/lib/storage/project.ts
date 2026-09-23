@@ -55,6 +55,25 @@ export function renameProjectRecord(record: ProjectRecord, name: string, now: Da
   return { ...record, name: trimmed.length > 0 ? trimmed : record.name, updatedAt: now.toISOString() }
 }
 
+/**
+ * Disambiguates a project name against ones already in use — "Untitled
+ * Project", then "Untitled Project 2", "Untitled Project 3", … Exists so
+ * a fresh session's lazily-created default-named project (see
+ * useProjectAutosave.ts) never collides with one from an earlier
+ * session: every app launch now starts blank rather than resuming the
+ * last-open project (ADR-020), so the same default name would otherwise
+ * get reused — and silently pile up as multiple identically-named
+ * records — every single time the pilot starts a new session and does
+ * the "just start clicking" demo flow.
+ */
+export function uniqueProjectName(baseName: string, existingNames: string[]): string {
+  const taken = new Set(existingNames)
+  if (!taken.has(baseName)) return baseName
+  let n = 2
+  while (taken.has(`${baseName} ${n}`)) n++
+  return `${baseName} ${n}`
+}
+
 /** Most-recently-updated first — what the Projects panel lists. */
 export function sortProjectsByRecency(records: ProjectRecord[]): ProjectRecord[] {
   return [...records].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
