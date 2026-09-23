@@ -30,7 +30,7 @@ FieldWise fundamentally alters this paradigm:
 
 | Feature | Description | Technical Implementation |
 | :--- | :--- | :--- |
-| **Boundary Ingestion** | Four plot-creation methods (AeroGCS Green parity): RC/Mobile GPS walk, Drone point capture, trace on the satellite map, or import GeoJSON/KML. | `ImportPanel.tsx`, `DronePointCapture.tsx`, `src/lib/geo/importFormats.ts`, `boundary.ts` |
+| **Boundary Ingestion** | Four plot-creation methods (AeroGCS Green parity): RC/Mobile GPS walk, Drone point capture, trace on the satellite map, or import GeoJSON/KML. A created/imported plot renders with a blue fill and a yellow outline, on every step except Verify (where per-edge provenance colors — walked/satellite/confirmed/accepted — take over). | `ImportPanel.tsx`, `DronePointCapture.tsx`, `src/lib/geo/importFormats.ts`, `boundary.ts`, `FieldMap.tsx`'s `boundary-fill-layer`/`boundary-plain-outline-layer` |
 | **Obstacle Tool (Add / Edit / Delete)** | A standalone "Add Obstacle" tool (AeroGCS Green §12) supporting polygon (freehand) and circle (center + radius) exclusion zones, reusing the same no-spray-zone differencing as any other zone. Edit Obstacle lets the pilot drag a polygon vertex to reposition it, select and delete a vertex (3-vertex minimum), or drag a circle's edge to resize it — all live on the map, committed to the store on release. | `ImportPanel.tsx`, `FieldMap.tsx`, `src/lib/geo/circleObstacle.ts` |
 | **Global Location Search** | Finds any field worldwide via Nominatim geocoding or browser "use my current location" GPS. | `src/lib/map/geocoding.ts`, `LocationSearch.tsx` |
 | **Edge Provenance Tracking** | Deconstructs polygons into discrete edges tagged with provenance: `satellite`, `walked`, or `confirmed`, with `acceptedRisk` flags. | `src/lib/geo/types.ts`, `src/lib/geo/boundary.ts` |
@@ -43,6 +43,7 @@ FieldWise fundamentally alters this paradigm:
 | **Projects System & Autosave** | Local-first project management (create, rename, delete, recency sort) with debounced IndexedDB persistence. | `src/lib/storage/project.ts`, `projectDb.ts`, `useProjectAutosave.ts` |
 | **Resilient Map & Tile Cache** | Custom `fwsat://` protocol with Cache API storage, Esri placeholder detection, and automatic OpenStreetMap fallback. | `src/lib/map/resilientSatelliteTiles.ts`, `basemap.ts` |
 | **Base Map View Toggle** | Instant in-place toggle between satellite imagery and OpenStreetMap street view without tearing down layers. | `src/lib/map/basemap.ts`, `FieldMap.tsx` |
+| **Flight Path Preview** | A blue arrow drone marker animates the actual planned route, Start to Finish, on the Simulate step — auto-plays on a fixed-duration preview clock (not real drone speed). Simulate-scoped Play/Pause, Brake (pause in place), and RTL (reset to Start) controls, independent of Send to Vehicle's identically-named live flight controls. | `src/lib/simulation/flightPreview.ts`, `SimulatePanel.tsx`, `FieldMap.tsx`'s `dronePosition` marker |
 | **Replay & Scenario Simulator** | Live dual-simulation visualizer comparing "Blind" (the pilot's own boundary as first imported) vs "Sighted" (the pilot's own boundary as currently corrected) — derived from the actual session, not a scripted scenario; scored against the current boundary as ground truth. | `src/lib/simulation/replay.ts`, `sessionScenario.ts` |
 | **Multi-Format Mission Export** | Exports missions to QGroundControl (`.plan`), Mission Planner (`.waypoints`), KML, GeoJSON, CSV, and printable handoff sheets. | `src/lib/export/*` |
 | **Direct Hardware Link** | MAVLink 2.0 communication engine, transport-agnostic — micro-USB via Web Serial, or a Raspberry Pi bridge (Pixhawk serial → WebSocket) for a no-telemetry-radio, SSH-only Pi setup. | `src/lib/vehicle/mavlink/*`, `webSerialVehicle.ts`, `piRelayVehicle.ts`, `bridge/` |
@@ -98,7 +99,7 @@ The application guides the operator through an intuitive 6-stage lifecycle repre
 * **Geospatial Math & GIS:** `proj4` (Local Azimuthal Equidistant `aeqd`), `@turf/turf`, `polygon-clipping`.
 * **State Management & Storage:** Zustand 5.0 with synchronous atomic `recompute()` pipeline, IndexedDB (`fieldwise-projects`), Cache API (`fieldwise-satellite-tiles-v1`).
 * **Hardware & Protocols:** Web Serial API (`navigator.serial`) or a Raspberry Pi WebSocket bridge, custom TypeScript MAVLink 1.0/2.0 codec with 17 supported message definitions.
-* **Code Quality & Testing:** Vitest (26 suites, 217 tests passing), Oxlint.
+* **Code Quality & Testing:** Vitest (27 suites, 225 tests passing), Oxlint.
 
 ---
 

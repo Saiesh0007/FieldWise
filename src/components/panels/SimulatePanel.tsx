@@ -1,22 +1,28 @@
 import clsx from 'clsx'
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import type { SimulateOverlay } from '@/components/map/FieldMap'
 import { Button } from '@/components/ui/Button'
 import { StatCard } from '@/components/ui/StatCard'
 import type { LocalProjection } from '@/lib/geo/projection'
 import type { LatLng } from '@/lib/geo/types'
 import { PROVENANCE_COLORS } from '@/lib/map/provenanceColors'
+import { buildFlightPath, poseAtDistance, totalFlightPathLengthM } from '@/lib/simulation/flightPreview'
 import { boundaryHasCorrections, runSessionBlindVsSighted, type SessionBlindVsSighted } from '@/lib/simulation/sessionScenario'
 import type { ReplayResult } from '@/lib/simulation/replay'
+import { trimBookendingTransitLegs } from '@/lib/vehicle/missionFromPlan'
 import { useFieldStore } from '@/store/useFieldStore'
 
 interface SimulatePanelProps {
   onOverlayChange: (overlay: SimulateOverlay | null) => void
+  /** Flight-path preview's drone marker position — null while nothing is being previewed (e.g. no plan, or the pilot navigated away from Simulate). */
+  onDronePositionChange: (position: { lat: number; lon: number; headingDeg: number } | null) => void
 }
 
 type ReplayView = 'blind' | 'sighted'
 
 const ANIMATION_TICK_MS = 70
+/** How long a full start-to-finish preview takes, regardless of the route's real length — a 13km plan flown at drone speed would take the better part of an hour, which isn't useful as an on-screen preview. */
+const FLIGHT_PREVIEW_DURATION_S = 18
 
 interface SessionScenario extends SessionBlindVsSighted {
   groundTruthLatLng: LatLng[]
@@ -25,18 +31,82 @@ interface SessionScenario extends SessionBlindVsSighted {
   projection: LocalProjection
 }
 
-export function SimulatePanel({ onOverlayChange }: SimulatePanelProps) {
+export function SimulatePanel({ onOverlayChange, onDronePositionChange }: SimulatePanelProps) {
   const boundary = useFieldStore((s) => s.boundary)
   const originalBoundary = useFieldStore((s) => s.originalBoundary)
   const noSprayZones = useFieldStore((s) => s.noSprayZones)
   const droneProfile = useFieldStore((s) => s.droneProfile)
   const sweepStrategy = useFieldStore((s) => s.sweepStrategy)
   const projection = useFieldStore((s) => s.projection)
+  const sprayPlan = useFieldStore((s) => s.sprayPlan)
 
   const [scenario, setScenario] = useState<SessionScenario | null>(null)
   const [view, setView] = useState<ReplayView>('blind')
   const [step, setStep] = useState(0)
   const [playing, setPlaying] = useState(false)
+
+  // Flight-path preview — the drone flying the actual planned route
+  // (Start to Finish, the same trimmed passes the mission itself
+  // uploads), independent of the Blind vs. Sighted replay above.
+  const flightPath = useMemo(() => {
+    if (!sprayPlan) return []
+    return buildFlightPath(trimBookendingTransitLegs(sprayPlan.sorties.flatMap((s) => s.passes)))
+  }, [sprayPlan])
+  const flightPathLengthM = totalFlightPathLengthM(flightPath)
+  const [previewDistanceM, setPreviewDistanceM] = useState(0)
+  const [previewPlaying, setPreviewPlaying] = useState(false)
+
+  // A fresh plan (a re-plan, or a brand-new field) restarts the preview
+  // from Start and auto-plays it — "the drone must move from start to
+  // finish" is the default behavior, not something the pilot has to ask for.
+  useEffect(() => {
+    setPreviewDistanceM(0)
+    setPreviewPlaying(flightPathLengthM > 0)
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed on the plan identity, not flightPathLengthM itself (recomputed every render otherwise)
+  }, [sprayPlan])
+
+  useEffect(() => {
+    if (!previewPlaying) return
+    if (previewDistanceM >= flightPathLengthM) {
+      setPreviewPlaying(false)
+      return
+    }
+    const perTickM = flightPathLengthM / ((FLIGHT_PREVIEW_DURATION_S * 1000) / ANIMATION_TICK_MS)
+    const timer = setTimeout(() => setPreviewDistanceM((d) => Math.min(d + perTickM, flightPathLengthM)), ANIMATION_TICK_MS)
+    return () => clearTimeout(timer)
+  }, [previewPlaying, previewDistanceM, flightPathLengthM])
+
+  // Push the drone's current position/heading up to FieldMap.
+  useEffect(() => {
+    if (!projection || flightPath.length === 0) {
+      onDronePositionChange(null)
+      return
+    }
+    const pose = poseAtDistance(flightPath, previewDistanceM)
+    if (!pose) {
+      onDronePositionChange(null)
+      return
+    }
+    const { lon, lat } = projection.toLatLng(pose.point)
+    onDronePositionChange({ lat, lon, headingDeg: pose.headingDeg })
+  }, [flightPath, previewDistanceM, projection, onDronePositionChange])
+
+  // Clear the drone marker if the pilot navigates away from this step.
+  useEffect(() => () => onDronePositionChange(null), [onDronePositionChange])
+
+  const handlePreviewPlayPause = () => {
+    if (!previewPlaying && previewDistanceM >= flightPathLengthM) {
+      setPreviewDistanceM(0) // "Replay" — restart from Start rather than sitting stuck at Finish
+    }
+    setPreviewPlaying((p) => !p)
+  }
+  // Brake — a manual, single-tap way to stop the preview where it stands, matching the real Brake button's intent (Alt Hold in place).
+  const handlePreviewBrake = () => setPreviewPlaying(false)
+  // RTL — returns the previewed drone to the launch/start point, matching the real RTL button's intent.
+  const handlePreviewRtl = () => {
+    setPreviewPlaying(false)
+    setPreviewDistanceM(0)
+  }
 
   const hasCorrections = boundary && originalBoundary ? boundaryHasCorrections(originalBoundary, boundary) : false
 
@@ -113,6 +183,45 @@ export function SimulatePanel({ onOverlayChange }: SimulatePanelProps) {
 
   return (
     <div className="flex h-full flex-col gap-4 overflow-y-auto p-4">
+      {sprayPlan && flightPathLengthM > 0 && (
+        <>
+          <section className="space-y-2">
+            <h2 className="text-sm font-semibold text-(--text-primary)">Flight preview</h2>
+            <p className="mt-1 text-xs text-(--text-secondary)">
+              The blue arrow flies the planned route, Start to Finish — the same intended path (yellow, in Plan)
+              this plan would actually upload.
+            </p>
+            <div className="flex items-center gap-2">
+              <Button size="sm" variant="secondary" onClick={handlePreviewPlayPause}>
+                {previewPlaying ? 'Pause' : previewDistanceM >= flightPathLengthM ? 'Replay' : 'Play'}
+              </Button>
+              <Button size="sm" variant="secondary" disabled={!previewPlaying} onClick={handlePreviewBrake}>
+                Brake
+              </Button>
+              <Button size="sm" variant="danger" onClick={handlePreviewRtl}>
+                RTL
+              </Button>
+              <input
+                type="range"
+                min={0}
+                max={Math.max(flightPathLengthM, 1)}
+                value={previewDistanceM}
+                onChange={(e) => {
+                  setPreviewPlaying(false)
+                  setPreviewDistanceM(Number(e.target.value))
+                }}
+                className="flex-1"
+              />
+            </div>
+            <p className="text-xs text-(--text-muted)">
+              {previewDistanceM.toFixed(0)} / {flightPathLengthM.toFixed(0)} m flown
+            </p>
+          </section>
+
+          <div className="h-px bg-(--border-subtle)" />
+        </>
+      )}
+
       <div>
         <h2 className="text-sm font-semibold text-(--text-primary)">Blind vs. Sighted replay</h2>
         <p className="mt-1 text-xs text-(--text-secondary)">

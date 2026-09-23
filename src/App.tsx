@@ -43,6 +43,7 @@ function App() {
   const [correctionTarget, setCorrectionTarget] = useState<CorrectionTarget | null>(null)
   const [cropRowTapActive, setCropRowTapActive] = useState(false)
   const [simulateOverlay, setSimulateOverlay] = useState<SimulateOverlay | null>(null)
+  const [dronePreviewPosition, setDronePreviewPosition] = useState<{ lat: number; lon: number; headingDeg: number } | null>(null)
   const [flyTo, setFlyTo] = useState<FlyToRequest | null>(null)
   const [projectsOpen, setProjectsOpen] = useState(false)
 
@@ -209,7 +210,9 @@ function App() {
             {currentStep === 'plan' && (
               <PlanPanel cropRowTapActive={cropRowTapActive} onStartCropRowTap={() => setCropRowTapActive(true)} onCancelCropRowTap={() => setCropRowTapActive(false)} />
             )}
-            {currentStep === 'simulate' && <SimulatePanel onOverlayChange={setSimulateOverlay} />}
+            {currentStep === 'simulate' && (
+              <SimulatePanel onOverlayChange={setSimulateOverlay} onDronePositionChange={setDronePreviewPosition} />
+            )}
             {currentStep === 'export' && <ExportPanel />}
             {currentStep === 'send' && <SendPanel onCenterOnDrone={handleCenterOnDrone} />}
           </div>
@@ -248,6 +251,7 @@ function App() {
             cropRowTapActive={cropRowTapActive}
             onCropRowTap={handleCropRowTap}
             simulateOverlay={simulateOverlay}
+            dronePosition={currentStep === 'simulate' ? dronePreviewPosition : null}
             flyTo={flyTo}
           />
         </div>

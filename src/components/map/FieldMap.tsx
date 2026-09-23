@@ -144,6 +144,9 @@ interface FieldMapProps {
   /** Blind vs. Sighted replay: the scored boundary + heatmap for whichever run is currently being viewed. */
   simulateOverlay: SimulateOverlay | null
 
+  /** Simulate step's flight-preview drone position — a blue arrow marker, rotated to `headingDeg` (compass bearing, 0=north, clockwise). Null when no preview is running (e.g. every step other than Simulate). */
+  dronePosition?: { lat: number; lon: number; headingDeg: number } | null
+
   /**
    * A place search result or "use my current location" request — purely
    * a camera move, never touches boundary/session state. A new object
@@ -239,6 +242,26 @@ function createStartFinishMarkerElement(letter: 'S' | 'F'): HTMLDivElement {
   return el
 }
 
+/**
+ * The Simulate step's flight-preview drone — a blue arrow, rotated to
+ * the current heading of travel via the marker's `rotation` option (the
+ * SVG itself points "up" = north at rotation 0). Kept visually distinct
+ * from the green Start/Finish markers and from the real vehicle's own
+ * telemetry position (Send to Vehicle has no map marker of its own yet).
+ */
+function createDroneArrowElement(): HTMLDivElement {
+  const el = document.createElement('div')
+  el.style.width = '26px'
+  el.style.height = '26px'
+  el.style.pointerEvents = 'none'
+  el.innerHTML = `
+    <svg viewBox="0 0 24 24" width="26" height="26" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <path d="M12 2 L20 20 L12 15.5 L4 20 Z" fill="#2563eb" stroke="#ffffff" stroke-width="1.5" stroke-linejoin="round" />
+    </svg>
+  `
+  return el
+}
+
 export function FieldMap({
   boundary,
   noSprayZones,
@@ -271,12 +294,14 @@ export function FieldMap({
   cropRowTapActive,
   onCropRowTap,
   simulateOverlay,
+  dronePosition = null,
   flyTo,
 }: FieldMapProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<MapLibreMap | null>(null)
   const startMarkerRef = useRef<MapLibreMarker | null>(null)
   const finishMarkerRef = useRef<MapLibreMarker | null>(null)
+  const droneMarkerRef = useRef<MapLibreMarker | null>(null)
   const [loaded, setLoaded] = useState(false)
   const [drawVertices, setDrawVertices] = useState<LatLng[]>([])
 
@@ -439,7 +464,17 @@ export function FieldMap({
         id: 'boundary-fill-layer',
         type: 'fill',
         source: SOURCE.boundaryFill,
-        paint: { 'fill-color': '#279d82', 'fill-opacity': 0.12 },
+        paint: { 'fill-color': '#2563eb', 'fill-opacity': 0.14 },
+      })
+      // A plain yellow outline for the plot boundary — visible whenever the
+      // per-edge provenance colors (verified/unverified/accepted, Verify
+      // step only) aren't already drawing a more detailed outline.
+      map.addLayer({
+        id: 'boundary-plain-outline-layer',
+        type: 'line',
+        source: SOURCE.boundaryFill,
+        layout: { 'line-cap': 'round', 'line-join': 'round' },
+        paint: { 'line-color': '#eab308', 'line-width': 2.5 },
       })
 
       map.addSource(SOURCE.boundaryEdges, {
@@ -943,8 +978,10 @@ export function FieldMap({
       window.removeEventListener('mouseup', stopDraggingZoneVertex)
       startMarkerRef.current?.remove()
       finishMarkerRef.current?.remove()
+      droneMarkerRef.current?.remove()
       startMarkerRef.current = null
       finishMarkerRef.current = null
+      droneMarkerRef.current = null
       map.remove()
       mapRef.current = null
     }
@@ -1146,6 +1183,28 @@ export function FieldMap({
     }
   }, [sprayPlan, projection, loaded])
 
+  // Simulate step's flight-preview drone marker — a blue arrow, rotated
+  // to the direction of travel. Entirely separate from the Start/Finish
+  // markers above: this one moves, driven by SimulatePanel ticking
+  // `dronePosition` forward along the route.
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !loaded) return
+
+    if (!dronePosition) {
+      droneMarkerRef.current?.remove()
+      return
+    }
+
+    if (!droneMarkerRef.current) {
+      droneMarkerRef.current = new MapLibreMarker({ element: createDroneArrowElement(), anchor: 'center', rotationAlignment: 'map' })
+    }
+    droneMarkerRef.current
+      .setLngLat([dronePosition.lon, dronePosition.lat])
+      .setRotation(dronePosition.headingDeg)
+      .addTo(map)
+  }, [dronePosition, loaded])
+
   // Blind vs. Sighted replay overlay: ground truth + active boundary outlines, and the heatmap itself.
   useEffect(() => {
     const map = mapRef.current
@@ -1191,6 +1250,10 @@ export function FieldMap({
     ]) {
       map.setLayoutProperty(id, 'visibility', vis(showEdges))
     }
+    // The plain yellow outline is the inverse case — it's redundant once
+    // the per-edge provenance colors are already drawing a (more
+    // detailed) outline on Verify.
+    map.setLayoutProperty('boundary-plain-outline-layer', 'visibility', vis(!showEdges))
   }, [showEdges, loaded])
 
   useEffect(() => {

@@ -33,7 +33,14 @@ import type { SprayPass } from '@/lib/geo/types'
 import { MAV_CMD_NAV_WAYPOINT } from './mavlink/messages'
 import type { MissionWaypoint } from './types'
 
-function trimBookendingTransitLegs(passes: SprayPass[]): SprayPass[] {
+/**
+ * Exported for Simulate's flight-path preview (`flightPreview.ts`), which
+ * animates a drone marker over the same trimmed route this function
+ * uploads — so the preview shows the same start/finish the mission and
+ * the Plan panel's S/F markers agree on, not the raw pass list with its
+ * home-bookending transit legs.
+ */
+export function trimBookendingTransitLegs(passes: SprayPass[]): SprayPass[] {
   let start = 0
   let end = passes.length
   while (start < end && !passes[start].spraying) start++
