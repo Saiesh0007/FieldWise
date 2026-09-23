@@ -137,6 +137,9 @@ export interface ProjectSnapshot {
   noSprayZones: NoSprayZone[]
   droneProfile: DroneProfile
   sweepStrategy: SweepStrategy
+  spacingOverrideM?: number | null  // Manual Plan Editing §11.3 "Adjust Spacing" — see Memory.md ADR-013.
+  headLock?: boolean                 // §11.6 Route Adjust's Head Lock toggle.
+  planOffsetLocal?: LocalPoint        // §11.7 "Move Plan"'s accumulated offset.
 }
 
 export interface ProjectRecord {
@@ -187,7 +190,7 @@ The planning algorithm executes in local metric space:
         ▼ Rotate by -θ (headingRad)
 [Rotated Sweep Space]
         │
-        ▼ Slice into horizontal scanlines spaced by swathM * (1 - overlapFraction)
+        ▼ Slice into horizontal scanlines spaced by spacingOverrideM, if set — else swathM * (1 - overlapFraction)
 [Scanline Spans (even-odd crossing)]
         │
         ▼ Alternate segment directions per row & connect with transit legs (spraying: false)
@@ -198,14 +201,18 @@ The planning algorithm executes in local metric space:
         │
         ▼ Partition by tank capacity (tankL) and battery limit (enduranceMin)
 [Sorties & Totals (SprayPlan)]
+        │
+        ▼ translateSprayPlan(plan, planOffsetLocal) — "Move Plan" (§11.7), only if the offset is nonzero
+[Final SprayPlan]
 ```
 
 1. **Heading Determination:**
    - `min-turns`: Minimizes turn count using rotating calipers to find the polygon's minimum Feret diameter.
-   - `fixed-heading`: Pilot-specified compass heading.
+   - `fixed-heading`: Pilot-specified compass heading — also what "Route Adjust" (§11.6) drives via its angle slider.
    - `crop-row`: Heading derived from two tapped points along a visible crop row via `atan2`.
 2. **Scanline Even-Odd Slicing:** Evaluates intersections between horizontal row lines and polygon boundary edges, handling concave fields and internal holes automatically.
 3. **Sortie Partitioning (`droneProfile.ts`):** Accumulates chemical volume consumed ($A_{\text{ha}} \times \text{Rate}_{\text{L/ha}}$) and flight time ($\frac{\text{Distance}}{\text{Speed}} + \text{Turns} \times \text{TurnPenalty}$). A new sortie break is inserted whenever the accumulated load approaches `tankL` or time approaches `enduranceMin`.
+4. **Move Plan (`translateSprayPlan`):** A pure post-processing translation of every pass's `start`/`end` by a fixed local-meter offset — applied once, after the plan is otherwise complete, so it never affects row placement, sortie splitting, or totals (distance/volume/area are all translation-invariant). See Memory.md ADR-013 for why this is a separate post-processing step rather than a `planSprayPath` input.
 
 ### 2.4. Hard Readiness Safety Gate (`readiness.ts`)
 The readiness engine enforces the mission clearance rule:

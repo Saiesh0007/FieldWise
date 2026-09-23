@@ -6,7 +6,7 @@
  * ProjectRecord), kept dependency-free so it's unit-testable without a
  * real IndexedDB — the actual database calls live in projectDb.ts.
  */
-import type { DroneProfile, FieldBoundary, NoSprayZone, SweepStrategy } from '@/lib/geo/types'
+import type { DroneProfile, FieldBoundary, LocalPoint, NoSprayZone, SweepStrategy } from '@/lib/geo/types'
 
 /** Exactly the session fields worth persisting — derived state (projection, sprayPlan, readiness, etc.) is cheap to recompute and never stored. */
 export interface ProjectSnapshot {
@@ -16,6 +16,10 @@ export interface ProjectSnapshot {
   noSprayZones: NoSprayZone[]
   droneProfile: DroneProfile
   sweepStrategy: SweepStrategy
+  /** Manual Plan editing (AeroGCS Green §11) — Adjust Spacing override, Route Adjust's Head Lock, and Move Plan's accumulated offset. All optional so records saved before these fields existed still deserialize (falling back to "no override"). */
+  spacingOverrideM?: number | null
+  headLock?: boolean
+  planOffsetLocal?: LocalPoint
 }
 
 export interface ProjectRecord {

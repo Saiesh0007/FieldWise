@@ -54,7 +54,7 @@ This document establishes the mandatory architectural rules, engineering standar
 ## Rule 7: Test Coverage & Regression Gate
 * **Invariant:** Every new geometry algorithm, format exporter, or MAVLink codec message must be accompanied by Vitest unit tests.
 * **Verification Mandate:**
-  * Run `npm test` before committing any changes. All tests (currently 25 test files, 190+ tests) must pass with zero failures.
+  * Run `npm test` before committing any changes. All tests (currently 25 test files, 194+ tests) must pass with zero failures.
   * Any edge case found in polygon clipping, self-intersections, plausibility bounds, or MAVLink CRC calculation must be codified as a permanent regression test.
 
 ---

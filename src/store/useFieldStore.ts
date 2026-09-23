@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import { acceptEdgeRisk, applyWalkedEdgeCorrection, revokeAcceptedRisk } from '@/lib/geo/delta'
 import { DEFAULT_DRONE_PROFILE } from '@/lib/geo/defaults'
-import { planSprayPath } from '@/lib/geo/planner'
+import { planSprayPath, translateSprayPlan } from '@/lib/geo/planner'
 import {
   approximateCentroidLatLng,
   createLocalProjection,
@@ -14,6 +14,7 @@ import type {
   DroneProfile,
   FieldBoundary,
   LatLng,
+  LocalPoint,
   NoSprayZone,
   ReadinessSummary,
   SprayPlan,
@@ -53,6 +54,12 @@ interface FieldState {
   noSprayZones: NoSprayZone[]
   droneProfile: DroneProfile
   sweepStrategy: SweepStrategy
+  /** Manual plan editing (AeroGCS Green §11) — Adjust Spacing: overrides the profile-derived row spacing when set; null means "use the drone profile's swath". */
+  spacingOverrideM: number | null
+  /** Route Adjust's Head Lock toggle — recorded for export/handoff purposes; doesn't change the generated geometry (FieldWise has no in-flight heading simulation to lock). */
+  headLock: boolean
+  /** Move Plan — an accumulated local-meter offset applied to the generated plan's passes only (not the boundary or zones) via `translateSprayPlan`. */
+  planOffsetLocal: LocalPoint
 
   /** The boundary's local metric projection — recomputed (centered on the new centroid) whenever the boundary changes. */
   projection: LocalProjection | null
@@ -90,6 +97,14 @@ interface FieldState {
   updateNoSprayZone: (id: string, update: Partial<Pick<NoSprayZone, 'vertices' | 'center' | 'radiusM'>>) => void
   setDroneProfile: (profile: DroneProfile) => void
   setSweepStrategy: (strategy: SweepStrategy) => void
+  /** Adjust Spacing (§11.3) — null clears the override, back to the profile's swath-derived spacing. */
+  setSpacingOverrideM: (spacingM: number | null) => void
+  /** Route Adjust's Head Lock (§11.6). */
+  setHeadLock: (headLock: boolean) => void
+  /** Move Plan (§11.7) — nudges the accumulated offset by (dxM, dyM), local meters. */
+  movePlan: (dxM: number, dyM: number) => void
+  /** Move Plan's reset — back to no offset. */
+  resetPlanOffset: () => void
   setSelectedEdgeId: (edgeId: string | null) => void
   /** "Walk a strip" / "Trim an edge" — both are this one delta merge, see lib/geo/delta.ts for why. */
   walkEdge: (edgeId: string, walkedPoints: LatLng[], accuracyM: number) => void
@@ -129,9 +144,11 @@ function recompute(input: {
   noSprayZones: NoSprayZone[]
   droneProfile: DroneProfile
   sweepStrategy: SweepStrategy
+  spacingOverrideM?: number | null
+  planOffsetLocal?: LocalPoint
 }): DerivedFields {
   const t0 = performance.now()
-  const { boundary, noSprayZones, droneProfile, sweepStrategy } = input
+  const { boundary, noSprayZones, droneProfile, sweepStrategy, spacingOverrideM, planOffsetLocal } = input
 
   if (!boundary) {
     return { projection: null, sprayPlan: null, planError: null, readiness: null, lastRecomputeMs: performance.now() - t0 }
@@ -152,7 +169,16 @@ function recompute(input: {
   let sprayPlan: SprayPlan | null = null
   let planError: string | null = null
   try {
-    sprayPlan = planSprayPath({ boundaryLocal, noSprayZonesLocal, droneProfile, sweepStrategy })
+    sprayPlan = planSprayPath({
+      boundaryLocal,
+      noSprayZonesLocal,
+      droneProfile,
+      sweepStrategy,
+      spacingOverrideM: spacingOverrideM ?? undefined,
+    })
+    if (planOffsetLocal && (planOffsetLocal.x !== 0 || planOffsetLocal.y !== 0)) {
+      sprayPlan = translateSprayPlan(sprayPlan, planOffsetLocal)
+    }
   } catch (err) {
     planError = err instanceof Error ? err.message : 'Failed to plan the spray path.'
   }
@@ -170,6 +196,9 @@ const initialState = {
   noSprayZones: [] as NoSprayZone[],
   droneProfile: DEFAULT_DRONE_PROFILE,
   sweepStrategy: { kind: 'min-turns' } as SweepStrategy,
+  spacingOverrideM: null as number | null,
+  headLock: false,
+  planOffsetLocal: { x: 0, y: 0 } as LocalPoint,
   projection: null as LocalProjection | null,
   sprayPlan: null as SprayPlan | null,
   planError: null as string | null,
@@ -224,6 +253,23 @@ export const useFieldStore = create<FieldState>((set) => ({
   setSweepStrategy: (sweepStrategy) =>
     set((state) => ({ sweepStrategy, ...recompute({ ...state, sweepStrategy }) })),
 
+  setSpacingOverrideM: (spacingOverrideM) =>
+    set((state) => ({ spacingOverrideM, ...recompute({ ...state, spacingOverrideM }) })),
+
+  setHeadLock: (headLock) => set({ headLock }),
+
+  movePlan: (dxM, dyM) =>
+    set((state) => {
+      const planOffsetLocal = { x: state.planOffsetLocal.x + dxM, y: state.planOffsetLocal.y + dyM }
+      return { planOffsetLocal, ...recompute({ ...state, planOffsetLocal }) }
+    }),
+
+  resetPlanOffset: () =>
+    set((state) => {
+      const planOffsetLocal = { x: 0, y: 0 }
+      return { planOffsetLocal, ...recompute({ ...state, planOffsetLocal }) }
+    }),
+
   setSelectedEdgeId: (selectedEdgeId) => set({ selectedEdgeId }),
 
   walkEdge: (edgeId, walkedPoints, accuracyM) =>
@@ -258,6 +304,9 @@ export const useFieldStore = create<FieldState>((set) => ({
       noSprayZones: preset.noSprayZones,
       sweepStrategy: preset.sweepStrategy,
       droneProfile: DEFAULT_DRONE_PROFILE,
+      spacingOverrideM: null,
+      headLock: false,
+      planOffsetLocal: { x: 0, y: 0 },
       selectedEdgeId: null,
       ...recompute({
         boundary: preset.boundary,
@@ -284,6 +333,9 @@ export const useFieldStore = create<FieldState>((set) => ({
       noSprayZones: snapshot.noSprayZones,
       droneProfile: snapshot.droneProfile,
       sweepStrategy: snapshot.sweepStrategy,
+      spacingOverrideM: snapshot.spacingOverrideM ?? null,
+      headLock: snapshot.headLock ?? false,
+      planOffsetLocal: snapshot.planOffsetLocal ?? { x: 0, y: 0 },
       selectedEdgeId: null,
       currentStep: snapshot.boundary ? 'verify' : 'import',
       ...recompute(snapshot),

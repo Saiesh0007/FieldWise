@@ -10,6 +10,10 @@ interface PlanPanelProps {
   onCancelCropRowTap: () => void
 }
 
+const MIN_SPACING_M = 2
+const MAX_SPACING_M = 10
+const MOVE_PLAN_STEP_M = 1
+
 export function PlanPanel({ cropRowTapActive, onStartCropRowTap, onCancelCropRowTap }: PlanPanelProps) {
   const boundary = useFieldStore((s) => s.boundary)
   const sprayPlan = useFieldStore((s) => s.sprayPlan)
@@ -17,6 +21,13 @@ export function PlanPanel({ cropRowTapActive, onStartCropRowTap, onCancelCropRow
   const droneProfile = useFieldStore((s) => s.droneProfile)
   const sweepStrategy = useFieldStore((s) => s.sweepStrategy)
   const setSweepStrategy = useFieldStore((s) => s.setSweepStrategy)
+  const headLock = useFieldStore((s) => s.headLock)
+  const setHeadLock = useFieldStore((s) => s.setHeadLock)
+  const spacingOverrideM = useFieldStore((s) => s.spacingOverrideM)
+  const setSpacingOverrideM = useFieldStore((s) => s.setSpacingOverrideM)
+  const planOffsetLocal = useFieldStore((s) => s.planOffsetLocal)
+  const movePlan = useFieldStore((s) => s.movePlan)
+  const resetPlanOffset = useFieldStore((s) => s.resetPlanOffset)
   const setStep = useFieldStore((s) => s.setStep)
   const lastRecomputeMs = useFieldStore((s) => s.lastRecomputeMs)
 
@@ -71,7 +82,7 @@ export function PlanPanel({ cropRowTapActive, onStartCropRowTap, onCancelCropRow
       <div className="h-px bg-(--border-subtle)" />
 
       <section className="space-y-2">
-        <h3 className="text-xs font-semibold uppercase tracking-wide text-(--text-muted)">Sweep heading</h3>
+        <h3 className="text-xs font-semibold uppercase tracking-wide text-(--text-muted)">Route adjust — heading</h3>
         <div className="flex items-center gap-2">
           <label className="flex cursor-pointer items-center gap-1.5 text-sm text-(--text-primary)">
             <input
@@ -93,18 +104,41 @@ export function PlanPanel({ cropRowTapActive, onStartCropRowTap, onCancelCropRow
           </label>
         </div>
         {isFixedOrCropRow && (
-          <div className="flex items-center gap-2">
-            <input
-              type="number"
-              className="w-24 rounded-(--radius-control) border border-(--border-subtle) bg-(--surface-panel) px-2 py-1 text-sm transition-colors focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-100"
-              value={headingInput}
-              onChange={(e) => {
-                setHeadingInput(e.target.value)
-                setSweepStrategy({ kind: 'fixed-heading', headingDeg: Number(e.target.value) || 0 })
-              }}
-            />
-            <span className="text-xs text-(--text-muted)">degrees from east, counter-clockwise</span>
-          </div>
+          <>
+            <div className="flex items-center gap-2">
+              <input
+                type="range"
+                min={0}
+                max={360}
+                step={1}
+                className="flex-1"
+                value={Number(headingInput) || 0}
+                onChange={(e) => {
+                  setHeadingInput(e.target.value)
+                  setSweepStrategy({ kind: 'fixed-heading', headingDeg: Number(e.target.value) })
+                }}
+              />
+              <input
+                type="number"
+                className="w-20 rounded-(--radius-control) border border-(--border-subtle) bg-(--surface-panel) px-2 py-1 text-sm transition-colors focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-100"
+                value={headingInput}
+                onChange={(e) => {
+                  setHeadingInput(e.target.value)
+                  setSweepStrategy({ kind: 'fixed-heading', headingDeg: Number(e.target.value) || 0 })
+                }}
+              />
+              <span className="text-xs text-(--text-muted)">° from east, CCW</span>
+            </div>
+            <label className="flex cursor-pointer items-center gap-1.5 text-xs text-(--text-secondary)">
+              <input
+                type="checkbox"
+                className="h-3.5 w-3.5 accent-brand-600"
+                checked={headLock}
+                onChange={(e) => setHeadLock(e.target.checked)}
+              />
+              Head lock — keep the drone's heading fixed during flight, rather than turning to face each pass
+            </label>
+          </>
         )}
         {sweepStrategy.kind === 'crop-row' && (
           <p className="text-xs text-provenance-walked">Set by tapping a crop row on the map.</p>
@@ -118,6 +152,74 @@ export function PlanPanel({ cropRowTapActive, onStartCropRowTap, onCancelCropRow
             Tap crop-row heading on map
           </Button>
         )}
+      </section>
+
+      <div className="h-px bg-(--border-subtle)" />
+
+      <section className="space-y-2">
+        <div className="flex items-center justify-between">
+          <h3 className="text-xs font-semibold uppercase tracking-wide text-(--text-muted)">Adjust spacing</h3>
+          <label className="flex cursor-pointer items-center gap-1.5 text-xs text-(--text-secondary)">
+            <input
+              type="checkbox"
+              className="h-3.5 w-3.5 accent-brand-600"
+              checked={spacingOverrideM !== null}
+              onChange={(e) => setSpacingOverrideM(e.target.checked ? droneProfile.swathM : null)}
+            />
+            Override
+          </label>
+        </div>
+        {spacingOverrideM !== null ? (
+          <div className="flex items-center gap-2">
+            <input
+              type="range"
+              min={MIN_SPACING_M}
+              max={MAX_SPACING_M}
+              step={0.5}
+              className="flex-1"
+              value={spacingOverrideM}
+              onChange={(e) => setSpacingOverrideM(Number(e.target.value))}
+            />
+            <span className="w-14 shrink-0 text-right text-xs tabular-nums text-(--text-primary)">{spacingOverrideM.toFixed(1)}m</span>
+          </div>
+        ) : (
+          <p className="text-xs text-(--text-muted)">Using the drone profile's swath: {droneProfile.swathM.toFixed(1)}m between rows.</p>
+        )}
+      </section>
+
+      <div className="h-px bg-(--border-subtle)" />
+
+      <section className="space-y-2">
+        <div className="flex items-center justify-between">
+          <h3 className="text-xs font-semibold uppercase tracking-wide text-(--text-muted)">Move plan</h3>
+          {(planOffsetLocal.x !== 0 || planOffsetLocal.y !== 0) && (
+            <button type="button" className="text-xs text-danger hover:underline" onClick={resetPlanOffset}>
+              Reset
+            </button>
+          )}
+        </div>
+        <div className="grid w-fit grid-cols-3 gap-1">
+          <div />
+          <Button size="sm" variant="secondary" onClick={() => movePlan(0, MOVE_PLAN_STEP_M)} aria-label="Move plan north">
+            ↑
+          </Button>
+          <div />
+          <Button size="sm" variant="secondary" onClick={() => movePlan(-MOVE_PLAN_STEP_M, 0)} aria-label="Move plan west">
+            ←
+          </Button>
+          <div />
+          <Button size="sm" variant="secondary" onClick={() => movePlan(MOVE_PLAN_STEP_M, 0)} aria-label="Move plan east">
+            →
+          </Button>
+          <div />
+          <Button size="sm" variant="secondary" onClick={() => movePlan(0, -MOVE_PLAN_STEP_M)} aria-label="Move plan south">
+            ↓
+          </Button>
+          <div />
+        </div>
+        <p className="text-xs text-(--text-muted)">
+          Displacement: {planOffsetLocal.x.toFixed(1)}m east, {planOffsetLocal.y.toFixed(1)}m north
+        </p>
       </section>
 
       <div className="mt-auto pt-2">

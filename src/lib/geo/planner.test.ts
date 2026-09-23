@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { planSprayPath } from './planner'
+import { planSprayPath, translateSprayPlan } from './planner'
 import type { DroneProfile, LocalPoint, SprayPass } from './types'
 
 const profile = (overrides: Partial<DroneProfile> = {}): DroneProfile => ({
@@ -189,5 +189,89 @@ describe('planSprayPath — degenerate cases', () => {
     expect(plan.sorties).toHaveLength(0)
     expect(plan.areaHa).toBe(0)
     expect(plan.totalVolumeL).toBe(0)
+  })
+})
+
+describe('planSprayPath — spacingOverrideM (Adjust Spacing, AeroGCS Green §11.3)', () => {
+  const square: LocalPoint[] = [
+    { x: 0, y: 0 },
+    { x: 100, y: 0 },
+    { x: 100, y: 100 },
+    { x: 0, y: 100 },
+  ]
+
+  it('uses the override instead of the profile-derived swath spacing, producing more rows for a tighter value', () => {
+    const wide = planSprayPath({
+      boundaryLocal: square,
+      noSprayZonesLocal: [],
+      droneProfile: profile({ swathM: 10 }),
+      sweepStrategy: { kind: 'fixed-heading', headingDeg: 0 },
+    })
+    const tight = planSprayPath({
+      boundaryLocal: square,
+      noSprayZonesLocal: [],
+      droneProfile: profile({ swathM: 10 }),
+      sweepStrategy: { kind: 'fixed-heading', headingDeg: 0 },
+      spacingOverrideM: 4,
+    })
+
+    const rowCount = (plan: ReturnType<typeof planSprayPath>) => sprayingPasses(plan).length
+    expect(rowCount(tight)).toBeGreaterThan(rowCount(wide))
+  })
+
+  it('rejects a non-positive override rather than looping forever', () => {
+    expect(() =>
+      planSprayPath({
+        boundaryLocal: square,
+        noSprayZonesLocal: [],
+        droneProfile: profile(),
+        sweepStrategy: { kind: 'fixed-heading', headingDeg: 0 },
+        spacingOverrideM: 0,
+      }),
+    ).toThrow()
+  })
+})
+
+describe('translateSprayPlan — Move Plan (AeroGCS Green §11.7)', () => {
+  const square: LocalPoint[] = [
+    { x: 0, y: 0 },
+    { x: 100, y: 0 },
+    { x: 100, y: 100 },
+    { x: 0, y: 100 },
+  ]
+
+  it('shifts every pass by the offset and leaves totals unchanged', () => {
+    const plan = planSprayPath({
+      boundaryLocal: square,
+      noSprayZonesLocal: [],
+      droneProfile: profile(),
+      sweepStrategy: { kind: 'fixed-heading', headingDeg: 0 },
+    })
+    const moved = translateSprayPlan(plan, { x: 15, y: -7 })
+
+    const originalPasses = plan.sorties.flatMap((s) => s.passes)
+    const movedPasses = moved.sorties.flatMap((s) => s.passes)
+    expect(movedPasses).toHaveLength(originalPasses.length)
+    movedPasses.forEach((p, i) => {
+      expect(p.start.x).toBeCloseTo(originalPasses[i].start.x + 15, 9)
+      expect(p.start.y).toBeCloseTo(originalPasses[i].start.y - 7, 9)
+      expect(p.end.x).toBeCloseTo(originalPasses[i].end.x + 15, 9)
+      expect(p.end.y).toBeCloseTo(originalPasses[i].end.y - 7, 9)
+    })
+
+    // A pure translation changes no distances, volumes, or areas.
+    expect(moved.totalDistanceM).toBeCloseTo(plan.totalDistanceM, 9)
+    expect(moved.totalVolumeL).toBe(plan.totalVolumeL)
+    expect(moved.areaHa).toBe(plan.areaHa)
+  })
+
+  it('returns the exact same object for a zero offset (no-op)', () => {
+    const plan = planSprayPath({
+      boundaryLocal: square,
+      noSprayZonesLocal: [],
+      droneProfile: profile(),
+      sweepStrategy: { kind: 'fixed-heading', headingDeg: 0 },
+    })
+    expect(translateSprayPlan(plan, { x: 0, y: 0 })).toBe(plan)
   })
 })

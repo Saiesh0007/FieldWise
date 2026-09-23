@@ -145,6 +145,21 @@ This document captures historical context, Architectural Decision Records (ADRs)
 
 ---
 
+### ADR-013: Manual Plan Editing — Post-Plan Transform, Not a Parallel Planner
+* **Date:** 2026-09-23
+* **Status:** Accepted & Implemented (partial — see scope note below)
+* **Context:** AeroGCS Green's Mission Planning (§11) has 8 sub-features (Parameters, Adjust Waypoint, Adjust Spacing, Indentation, Obstacle Boundary, Route Adjust, Move Plan, Plan Splitting). `planSprayPath` is always called fresh from `boundary`/`noSprayZones`/`droneProfile`/`sweepStrategy` inside `recompute()` (Rule 3's atomic-recompute invariant) — any manual edit that needs to *survive* the next re-plan has to be expressed as one of that function's own inputs, or as a transform applied to its output, not as a one-off mutation of a rendered plan.
+* **Decision:** Ship the three sub-features that fit that shape cleanly, defer the rest:
+  * **Adjust Spacing** → a new `spacingOverrideM` param on `planSprayPath` itself, used in place of `swathM * (1 - overlapFraction)` when set.
+  * **Route Adjust** → no new mechanism at all — it's exactly the existing `sweepStrategy: {kind: 'fixed-heading', headingDeg}` the Plan panel already had; only a slider UI and a (geometry-inert) Head Lock toggle were added.
+  * **Move Plan** → a pure post-processing transform, `translateSprayPlan(plan, offset)`, applied once in `recompute()` after `planSprayPath` returns — never touches the boundary or zones, so it composes with everything else for free.
+  * **Deferred:** Adjust Waypoint (dragging one generated waypoint is fundamentally a manual override that must survive the *next* re-plan — e.g. a later spacing change — which needs real "diff and reapply" design, not a quick patch); Indentation and Obstacle Boundary spacing (both are legitimate `planSprayPath` inputs — a per-edge inward buffer and a zone buffer, respectively — deferred only for time, not an architectural blocker); Plan Splitting (a %-based route-exclusion display, orthogonal to the above three).
+* **Consequences:**
+  * *Pros:* All three built features are pure functions/params on the existing pipeline — no special-casing in `recompute()`, no new persistence design, and they compose (a rotated, tightened, and shifted plan all work together, verified in a real browser).
+  * *Cons:* `headLock` is presently a stored-but-inert flag — FieldWise has no in-flight heading simulation for it to actually affect. Adjust Waypoint remains the one AeroGCS Green §11 feature that can't be added incrementally; it needs a deliberate design pass on "what a manual override even means" once picked up.
+
+---
+
 ## 2. Hardware Gotchas & Field Notes
 
 ### Pixhawk 2.4.8 USB Communication
@@ -173,13 +188,14 @@ This document captures historical context, Architectural Decision Records (ADRs)
 
 * **Command:** `npm test`
 * **Test Runner:** Vitest v5.0
-* **Status:** 25 test files, 190 tests passing (100% success rate).
+* **Status:** 25 test files, 194 tests passing (100% success rate).
 * **Key Test Suites:**
   * `project.test.ts`: Validation of project record creation, recency sorting, and snapshot serialization.
   * `scenario.test.ts`: End-to-end integration test of an L-shaped field with pond exclusion, verifying sorties, passes, volumes, and readiness gating.
   * `delta.test.ts`: 17 tests validating point decimation, edge snapping, self-intersection rejection, plausibility thresholds, and provenance updates.
   * `circleObstacle.test.ts`: Circle-to-polygon conversion accuracy (radius, area) and its differencing against a boundary (fully-interior hole, edge-straddling clip) — see ADR-010.
   * `sessionScenario.test.ts`: `boundaryHasCorrections` (vertex and provenance divergence) and `runSessionBlindVsSighted`'s input selection — see ADR-011.
+  * `planner.test.ts`: also covers `spacingOverrideM` (row count increases for a tighter override; a non-positive override is rejected rather than looping forever) and `translateSprayPlan` (every pass shifts by the offset, totals unchanged, zero-offset is a no-op) — see ADR-013.
   * `mavlinkSession.test.ts`: Mocked serial loopback testing the MAVLink mission upload handshake and readback verification.
   * `codec.test.ts` & `crc.test.ts`: Validation of MAVLink 2.0 frame packing, CRC-16-CCITT calculations, and `CRC_EXTRA` seeds across all 14 messages.
   * `geocoding.test.ts` & `tileUrl.test.ts`: Tests for Nominatim response parsing and resilient tile URL generation.

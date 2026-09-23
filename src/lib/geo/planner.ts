@@ -28,6 +28,14 @@ export interface PlanSprayPathParams {
   overlapFraction?: number
   /** Launch/refill point; defaults to the boundary's first vertex. */
   homePoint?: LocalPoint
+  /**
+   * Manual row-spacing override, meters (AeroGCS Green §11.3 "Adjust
+   * Spacing") — when set, used directly as the distance between sweep
+   * rows instead of the profile-derived `swathM * (1 - overlapFraction)`.
+   * Lets a pilot tighten or loosen coverage independent of the drone
+   * profile's own swath figure, e.g. to compensate for wind drift.
+   */
+  spacingOverrideM?: number
 }
 
 function resolveHeadingRad(strategy: SweepStrategy, boundaryLocal: LocalPoint[]): number {
@@ -53,6 +61,9 @@ function emptyPlan(headingRad: number): SprayPlan {
 
 export function planSprayPath(params: PlanSprayPathParams): SprayPlan {
   const { boundaryLocal, noSprayZonesLocal, droneProfile, sweepStrategy, overlapFraction = 0 } = params
+  if (params.spacingOverrideM !== undefined && params.spacingOverrideM <= 0) {
+    throw new Error('spacingOverrideM must be a positive number of meters')
+  }
   const homePoint = params.homePoint ?? boundaryLocal[0]
 
   const headingRad = resolveHeadingRad(sweepStrategy, boundaryLocal)
@@ -67,7 +78,7 @@ export function planSprayPath(params: PlanSprayPathParams): SprayPlan {
   const rotatedPolys: LocalPolygon[] = sprayable.map((poly) => poly.map((ring) => ring.map((p) => rotate(p, -headingRad))))
   const allRotatedPoints = rotatedPolys.flat(2)
 
-  const spacing = droneProfile.swathM * (1 - overlapFraction)
+  const spacing = params.spacingOverrideM ?? droneProfile.swathM * (1 - overlapFraction)
   const yMin = Math.min(...allRotatedPoints.map((p) => p.y))
   const yMax = Math.max(...allRotatedPoints.map((p) => p.y))
 
@@ -130,5 +141,26 @@ export function planSprayPath(params: PlanSprayPathParams): SprayPlan {
     totalEstimatedMinutes: sorties.reduce((s, sortie) => s + sortie.estimatedMinutes, 0),
     areaHa: areaM2 / 10_000,
     headingDeg: (headingRad * 180) / Math.PI,
+  }
+}
+
+/**
+ * "Move Plan" (AeroGCS Green §11.7) — shifts every pass in an already-
+ * generated plan by a fixed local-meter offset, without touching the
+ * boundary, zones, or re-running the planner. A pure geometric
+ * translation: distances, areas, sortie/volume/time totals are all
+ * unchanged by a shift, so only each pass's start/end move.
+ */
+export function translateSprayPlan(plan: SprayPlan, offset: LocalPoint): SprayPlan {
+  if (offset.x === 0 && offset.y === 0) return plan
+
+  const shift = (p: LocalPoint): LocalPoint => ({ x: p.x + offset.x, y: p.y + offset.y })
+
+  return {
+    ...plan,
+    sorties: plan.sorties.map((sortie) => ({
+      ...sortie,
+      passes: sortie.passes.map((pass) => ({ ...pass, start: shift(pass.start), end: shift(pass.end) })),
+    })),
   }
 }
