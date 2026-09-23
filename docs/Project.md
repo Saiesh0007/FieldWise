@@ -13,7 +13,7 @@ FieldWise fundamentally alters this paradigm:
 2. **Field-Edge Verification & GPS Delta Corrections:** The field pilot inspects individual boundary edges. If an edge has drifted, the pilot walks the physical edge with a GPS device (or handheld phone) or performs a manual trim. FieldWise merges the delta curve into the polygon in real-time, simplifying walked traces to the GPS accuracy radius and enforcing plausibility bounds.
 3. **Sub-Second Client-Side Replanning:** The boustrophedon parallel swath spray plan re-computes completely in the browser in ~10–45 ms without sending spatial data to a cloud server.
 4. **Hard Readiness Gate:** A flight plan cannot clear for takeoff or mission upload until every boundary edge has been physically verified or its operational risk has been explicitly signed off.
-5. **Direct Web Serial MAVLink Linkage:** FieldWise connects directly from modern Chromium browsers (Chrome/Edge) to Pixhawk autopilots over USB using the Web Serial API and a lightweight MAVLink 2.0 protocol engine—no companion computer, ROS node, or server required.
+5. **MAVLink Vehicle Link, Two Transports:** FieldWise connects to Pixhawk autopilots using a lightweight, hand-rolled MAVLink 2.0 protocol engine over either of two interchangeable transports — directly from modern Chromium browsers (Chrome/Edge) over USB via the Web Serial API, or (for a Pixhawk with no telemetry radio, wired to a headless Raspberry Pi reachable only over SSH) through a small Pi-side bridge script relaying the serial stream over a WebSocket. No companion computer software, ROS node, or cloud server required either way.
 6. **AeroGCS Green Dashboard Parity & Projects:** Integrated local-first Projects management with IndexedDB autosave, geocoding location search, resilient satellite tile caching with street map toggle, settings menu, and comprehensive live telemetry widgets.
 
 ---
@@ -44,7 +44,7 @@ FieldWise fundamentally alters this paradigm:
 | **Base Map View Toggle** | Instant in-place toggle between satellite imagery and OpenStreetMap street view without tearing down layers. | `src/lib/map/basemap.ts`, `FieldMap.tsx` |
 | **Replay & Scenario Simulator** | Live dual-simulation visualizer comparing "Blind" (the pilot's own boundary as first imported) vs "Sighted" (the pilot's own boundary as currently corrected) — derived from the actual session, not a scripted scenario; scored against the current boundary as ground truth. | `src/lib/simulation/replay.ts`, `sessionScenario.ts` |
 | **Multi-Format Mission Export** | Exports missions to QGroundControl (`.plan`), Mission Planner (`.waypoints`), KML, GeoJSON, CSV, and printable handoff sheets. | `src/lib/export/*` |
-| **Direct Hardware Link** | Micro-USB MAVLink 2.0 communication engine communicating directly with Pixhawk autopilots via Web Serial. | `src/lib/vehicle/mavlink/*`, `webSerialVehicle.ts` |
+| **Direct Hardware Link** | MAVLink 2.0 communication engine, transport-agnostic — micro-USB via Web Serial, or a Raspberry Pi bridge (Pixhawk serial → WebSocket) for a no-telemetry-radio, SSH-only Pi setup. | `src/lib/vehicle/mavlink/*`, `webSerialVehicle.ts`, `piRelayVehicle.ts`, `bridge/` |
 | **Live Telemetry & Dashboard** | Displays GPS fix, satellites, HDOP, roll/pitch attitude dial, heading compass, battery V/%, altitude AGL, wind speed/direction, and drone center. | `src/components/panels/SendPanel.tsx`, `FieldMap.tsx` |
 
 ---
@@ -78,7 +78,7 @@ The application guides the operator through an intuitive 6-stage lifecycle repre
    - Generate standard autopilot files (`.plan` for QGroundControl, `.waypoints` for Mission Planner).
    - Export GIS layers (GeoJSON, KML) and printable pilot-signoff handoff briefing sheets.
 6. **Send to Vehicle:**
-   - Connect Pixhawk flight controller via USB cable using Web Serial.
+   - Connect Pixhawk flight controller via USB cable using Web Serial, or via a Raspberry Pi bridge over WebSocket if there's no telemetry radio and the Pi is only reachable over SSH.
    - Verify live telemetry (3D GPS lock, satellites, HDOP, Roll/Pitch artificial horizon, Heading compass, Battery, Altitude, Wind).
    - Upload waypoints directly to Pixhawk via MAVLink mission protocol and verify readback integrity.
 
@@ -91,7 +91,7 @@ The application guides the operator through an intuitive 6-stage lifecycle repre
 * **Mapping Engine:** MapLibre GL 6.10, custom vector tile and GeoJSON layers, custom `fwsat://` protocol.
 * **Geospatial Math & GIS:** `proj4` (Local Azimuthal Equidistant `aeqd`), `@turf/turf`, `polygon-clipping`.
 * **State Management & Storage:** Zustand 5.0 with synchronous atomic `recompute()` pipeline, IndexedDB (`fieldwise-projects`), Cache API (`fieldwise-satellite-tiles-v1`).
-* **Hardware & Protocols:** Web Serial API (`navigator.serial`), custom TypeScript MAVLink 1.0/2.0 codec with 14 supported message definitions.
+* **Hardware & Protocols:** Web Serial API (`navigator.serial`) or a Raspberry Pi WebSocket bridge, custom TypeScript MAVLink 1.0/2.0 codec with 14 supported message definitions.
 * **Code Quality & Testing:** Vitest (25 suites, 194 tests passing), Oxlint.
 
 ---
@@ -147,7 +147,7 @@ FieldWise/
 │   │   ├── storage/                  # IndexedDB persistence and ProjectRecord operations (+ unit tests)
 │   │   │   ├── project.ts, projectDb.ts
 │   │   └── vehicle/                  # Web Serial & MAVLink communication stack (+ unit tests)
-│   │       ├── mavlinkSession.ts, missionFromPlan.ts, webSerialVehicle.ts, types.ts
+│   │       ├── mavlinkSession.ts, missionFromPlan.ts, webSerialVehicle.ts, piRelayVehicle.ts, types.ts
 │   │       └── mavlink/              # Custom MAVLink codec, CRC calculations, message definitions
 │   │           ├── codec.ts, crc.ts, messages.ts
 │   │   store/                        # Central Zustand store & atomic recompute pipeline
@@ -156,7 +156,11 @@ FieldWise/
 │   ├── index.css                     # Tailwind v4 theme & custom utilities
 │   └── main.tsx                      # Application bootstrap
 ├── public/                           # Static assets & icons
-├── VEHICLE_CONNECTION_CHECKLIST.md   # Step-by-step physical Pixhawk USB testing guide
+├── bridge/                           # Standalone Node project — runs on the Pi, not part of the Vite app
+│   ├── serial-ws-bridge.mjs          # Pixhawk serial <-> WebSocket relay (see README.md)
+│   ├── package.json
+│   └── README.md
+├── VEHICLE_CONNECTION_CHECKLIST.md   # Step-by-step physical Pixhawk USB testing guide (USB direct + Pi bridge)
 ├── package.json                      # Dependencies and scripts
 └── vite.config.ts                    # Vite build and dev-server configuration
 ```

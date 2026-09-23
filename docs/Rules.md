@@ -6,7 +6,7 @@ This document establishes the mandatory architectural rules, engineering standar
 
 ## Rule 1: Offline-First & Client-Side Invariant
 * **Invariant:** Every computational feature (boundary parsing, projection, delta merging, path planning, file export, and MAVLink serialization) must execute 100% locally in the client browser.
-* **Storage Standard:** All persistence (field boundaries, drone profiles, projects) must use browser-local storage (IndexedDB via `projectDb.ts` and the browser Cache API via `resilientSatelliteTiles.ts`). No user data, field coordinates, or telemetry may be transmitted to external servers.
+* **Storage Standard:** All persistence (field boundaries, drone profiles, projects) must use browser-local storage (IndexedDB via `projectDb.ts` and the browser Cache API via `resilientSatelliteTiles.ts`). No user data, field coordinates, or telemetry may be transmitted to external servers. The Pi bridge (`bridge/`, `piRelayVehicle.ts`) doesn't violate this — it's a same-LAN relay the pilot runs themselves, carrying only the raw MAVLink byte stream between the browser and a vehicle the pilot already owns, never a cloud endpoint.
 * **Network Gracefulness:** Map tiles and geocoding services must gracefully handle offline conditions with fallback modes and clear UI indicators.
 
 ---

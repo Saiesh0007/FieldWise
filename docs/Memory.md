@@ -160,6 +160,21 @@ This document captures historical context, Architectural Decision Records (ADRs)
 
 ---
 
+### ADR-014: Pi Bridge — a Second `VehicleLink`, Not a Special Case
+* **Date:** 2026-09-23
+* **Status:** Accepted & Implemented (bridge transport only — see scope note)
+* **Context:** This project's actual hardware is a Pixhawk 2.4.8 wired over USB to a Raspberry Pi 4, with no telemetry radio, reached only by SSHing in from a different computer. `WebSerialVehicle` requires the browser and the serial port to be on the same machine (`navigator.serial` has no concept of a *remote* serial port), so it cannot reach this Pixhawk at all — not a bug, a fundamental limit of the Web Serial API. `types.ts` had already anticipated exactly this ("a PiRelayVehicle... is a same-interface drop-in for later if there's time") but nothing had been built.
+* **Decision:** Two pieces, matching the project's existing "Hardware Isolation" invariant (Rules.md Rule/Architecture.md §4.3 — UI only ever holds a `VehicleLink`, never a transport directly):
+  1. `bridge/serial-ws-bridge.mjs` — a standalone Node.js project (its own `package.json`, not part of the Vite app) that runs on the Pi, opens the Pixhawk's serial port via the `serialport` npm package, and relays raw bytes to exactly one connected WebSocket client at a time (rejecting a second connection, so two ground-station sessions can never send conflicting commands to the same vehicle). It understands nothing about MAVLink — a dumb byte pipe.
+  2. `src/lib/vehicle/piRelayVehicle.ts` — a second `VehicleLink` implementation, structurally a near-mirror of `webSerialVehicle.ts` (same `MavlinkSession` plumbing, same `connect`/`disconnect`/`onTelemetry` shape), just swapping `navigator.serial` for a browser `WebSocket`. `SendPanel.tsx` gained a connection-mode toggle (USB / Pi bridge) and a bridge-address field (remembered in `localStorage`) to pick which one to construct.
+  * The `ws`/`@types/ws` packages that had sat unused in the *root* `package.json` (the browser never needs a WebSocket **server** library — it has a native `WebSocket` client built in) moved to `bridge/package.json`, where a Node process actually runs one.
+  * The bridge got a `--mock` mode: instead of opening a real serial port, it emits a hand-built MAVLink v2 HEARTBEAT frame once a second. The framing/CRC in that mock was cross-verified against this project's own trusted decoder (`MavlinkFrameReader` — the same class `codec.test.ts` already trusts) in a throwaway integration test before being committed, and the full path (bridge → WebSocket → `PiRelayVehicle` → `SendPanel`) was then browser-verified for real: connect via "Pi bridge" mode, see "Connected", see live-decoded telemetry (flight mode, status, heartbeat age) — not a claim taken on faith.
+* **Consequences:**
+  * *Pros:* Real, working connectivity for this project's actual hardware setup, verified end-to-end without needing the real Pixhawk physically present for this pass. Zero changes to `MavlinkSession` or the codec — the transport swap is entirely below that layer, exactly as the architecture's transport-agnostic design intended.
+  * *Cons:* `--mock` only proves the heartbeat/telemetry path; it does not emulate the mission upload/download handshake (`MISSION_COUNT`/`MISSION_REQUEST_INT`/etc.), so "Upload mission" through the bridge is still unverified against anything, real hardware or otherwise — same caveat `webSerialVehicle.ts` already carried for the direct-USB path. The bridge is deliberately unauthenticated (documented loudly in `bridge/README.md`): anyone on the same network who can reach its port can relay MAVLink commands to the real vehicle. Acceptable for a trusted development LAN, not for anything exposed further.
+
+---
+
 ## 2. Hardware Gotchas & Field Notes
 
 ### Pixhawk 2.4.8 USB Communication

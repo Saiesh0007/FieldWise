@@ -106,3 +106,25 @@ The three most likely failure points, in order of probability:
 
 Either way — screenshot or copy the log panel's contents and the
 status badge's state, and we can fix it from there.
+
+## Connecting via a Raspberry Pi (no telemetry radio, SSH-only access)
+
+If the Pixhawk is wired to a Raspberry Pi instead of directly to the
+laptop running the browser — the setup this project actually has (a
+Pi 4 + Pixhawk 2.4.8, no telemetry module, reached only over SSH) — Web
+Serial can't help at all, because it requires the browser and the
+serial port to be on the same machine. Use the **Pi bridge** connection
+mode instead: see `bridge/README.md` for the full setup (installing
+Node + `serialport` on the Pi, finding the right `/dev/ttyACM0`-style
+path, running `serial-ws-bridge.mjs`, and keeping it running after you
+log out of SSH).
+
+Everything above this section still applies once connected — same
+"Connecting…" → "Connected" flow, same telemetry checks, same mission
+upload test — the only difference is which radio button you pick and
+that you're entering a `ws://<pi-ip>:8765` address instead of using the
+browser's serial-port picker dialog. The one extra failure mode to
+check first if it won't connect: is `serial-ws-bridge.mjs` actually
+still running on the Pi (SSH back in and check), and can this browser's
+machine actually reach the Pi's IP and port (same WiFi/LAN, no
+firewall blocking it)?

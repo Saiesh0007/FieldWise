@@ -1,14 +1,18 @@
 import clsx from 'clsx'
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Button } from '@/components/ui/Button'
 import { Spinner } from '@/components/ui/Spinner'
 import { StatCard } from '@/components/ui/StatCard'
 import type { LatLng } from '@/lib/geo/types'
 import { sprayPlanToWaypoints } from '@/lib/vehicle/missionFromPlan'
-import type { ConnectionState, MissionUploadResult, VehicleTelemetry } from '@/lib/vehicle/types'
+import { PiRelayVehicle } from '@/lib/vehicle/piRelayVehicle'
+import type { ConnectionState, MissionUploadResult, VehicleLink, VehicleTelemetry } from '@/lib/vehicle/types'
 import { EMPTY_TELEMETRY } from '@/lib/vehicle/types'
 import { WebSerialVehicle } from '@/lib/vehicle/webSerialVehicle'
 import { useFieldStore } from '@/store/useFieldStore'
+
+type ConnectionMode = 'web-serial' | 'pi-relay'
+const BRIDGE_URL_STORAGE_KEY = 'fieldwise-bridge-url'
 
 const STATE_LABEL: Record<ConnectionState, string> = {
   disconnected: 'Not connected',
@@ -77,7 +81,18 @@ export function SendPanel({ onCenterOnDrone }: SendPanelProps) {
   const projection = useFieldStore((s) => s.projection)
   const droneProfile = useFieldStore((s) => s.droneProfile)
 
-  const [vehicle] = useState(() => new WebSerialVehicle())
+  const [connectionMode, setConnectionMode] = useState<ConnectionMode>('web-serial')
+  const [bridgeUrl, setBridgeUrl] = useState<string>(() => {
+    try {
+      return localStorage.getItem(BRIDGE_URL_STORAGE_KEY) ?? ''
+    } catch {
+      return ''
+    }
+  })
+  const vehicle: VehicleLink = useMemo(
+    () => (connectionMode === 'web-serial' ? new WebSerialVehicle() : new PiRelayVehicle(bridgeUrl)),
+    [connectionMode, bridgeUrl],
+  )
   const [connectionState, setConnectionState] = useState<ConnectionState>('disconnected')
   const [telemetry, setTelemetry] = useState<VehicleTelemetry>(EMPTY_TELEMETRY)
   const [connectError, setConnectError] = useState<string | null>(null)
@@ -87,6 +102,13 @@ export function SendPanel({ onCenterOnDrone }: SendPanelProps) {
   const [uploadError, setUploadError] = useState<string | null>(null)
 
   useEffect(() => {
+    // A fresh vehicle instance (switching connection mode, or editing the
+    // bridge URL) starts disconnected — reset the displayed state rather
+    // than leaving the previous instance's last-known state on screen.
+    setConnectionState(vehicle.getConnectionState())
+    setTelemetry(EMPTY_TELEMETRY)
+    setConnectError(null)
+
     const offTelemetry = vehicle.onTelemetry(setTelemetry)
     const offState = vehicle.onConnectionStateChange(setConnectionState)
     const offLog = vehicle.onLog((msg) => setLogLines((prev) => [...prev.slice(-19), msg]))
@@ -94,7 +116,7 @@ export function SendPanel({ onCenterOnDrone }: SendPanelProps) {
       offTelemetry()
       offState()
       offLog()
-      void vehicle.disconnect() // don't leave a serial port open if the pilot navigates away from this step
+      void vehicle.disconnect() // don't leave a serial port / bridge socket open if the pilot navigates away or switches connection mode
     }
   }, [vehicle])
 
@@ -148,14 +170,64 @@ export function SendPanel({ onCenterOnDrone }: SendPanelProps) {
       <div>
         <h2 className="text-sm font-semibold text-(--text-primary)">Send to vehicle</h2>
         <p className="mt-1 text-xs text-(--text-secondary)">
-          Pixhawk over USB via Web Serial — Chrome or Edge only. This link is unverified against real hardware; see
-          the connection checklist.
+          Connect a Pixhawk directly over USB (Web Serial), or through a Raspberry Pi bridge if there's no telemetry
+          radio and the Pi is only reachable by SSH. This link is unverified against real hardware; see the
+          connection checklist.
         </p>
       </div>
 
-      {!webSerialSupported() && (
+      <div className="flex gap-2">
+        <label className="flex flex-1 cursor-pointer items-center gap-1.5 rounded-(--radius-control) border border-(--border-subtle) px-2.5 py-1.5 text-sm text-(--text-primary)">
+          <input
+            type="radio"
+            className="h-3.5 w-3.5 accent-brand-600"
+            checked={connectionMode === 'web-serial'}
+            disabled={connectionState !== 'disconnected' && connectionState !== 'error'}
+            onChange={() => setConnectionMode('web-serial')}
+          />
+          USB (Web Serial)
+        </label>
+        <label className="flex flex-1 cursor-pointer items-center gap-1.5 rounded-(--radius-control) border border-(--border-subtle) px-2.5 py-1.5 text-sm text-(--text-primary)">
+          <input
+            type="radio"
+            className="h-3.5 w-3.5 accent-brand-600"
+            checked={connectionMode === 'pi-relay'}
+            disabled={connectionState !== 'disconnected' && connectionState !== 'error'}
+            onChange={() => setConnectionMode('pi-relay')}
+          />
+          Pi bridge
+        </label>
+      </div>
+
+      {connectionMode === 'web-serial' && !webSerialSupported() && (
         <div className="rounded-(--radius-card) border border-warning/30 bg-warning-bg p-3 text-xs text-warning">
           Web Serial isn't available in this browser. Open this page in Chrome or Edge to connect a Pixhawk.
+        </div>
+      )}
+
+      {connectionMode === 'pi-relay' && (
+        <div className="space-y-1.5">
+          <input
+            type="text"
+            inputMode="url"
+            placeholder="ws://raspberrypi.local:8765"
+            className="w-full rounded-(--radius-control) border border-(--border-subtle) bg-(--surface-panel) px-2.5 py-1.5 text-sm transition-colors focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-100"
+            value={bridgeUrl}
+            disabled={connectionState !== 'disconnected' && connectionState !== 'error'}
+            onChange={(e) => {
+              setBridgeUrl(e.target.value)
+              try {
+                localStorage.setItem(BRIDGE_URL_STORAGE_KEY, e.target.value)
+              } catch {
+                /* private browsing / storage disabled — the address just won't be remembered next visit */
+              }
+            }}
+          />
+          <p className="text-xs text-(--text-muted)">
+            The address serial-ws-bridge.mjs printed when you started it on the Pi (run <code>hostname -I</code> on
+            the Pi if you don't know its address). Requires this browser's machine and the Pi to be on the same
+            network.
+          </p>
         </div>
       )}
 
@@ -169,7 +241,16 @@ export function SendPanel({ onCenterOnDrone }: SendPanelProps) {
             Disconnect
           </Button>
         ) : (
-          <Button size="sm" variant="primary" disabled={!webSerialSupported() || connectionState === 'connecting'} onClick={handleConnect}>
+          <Button
+            size="sm"
+            variant="primary"
+            disabled={
+              connectionState === 'connecting' ||
+              (connectionMode === 'web-serial' && !webSerialSupported()) ||
+              (connectionMode === 'pi-relay' && bridgeUrl.trim() === '')
+            }
+            onClick={handleConnect}
+          >
             Connect Pixhawk
           </Button>
         )}

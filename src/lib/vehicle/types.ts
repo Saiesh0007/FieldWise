@@ -1,13 +1,14 @@
 /**
  * VehicleLink is the hardware-agnostic contract everything above it
  * (the Send-to-Vehicle panel, and later the Blind vs. Sighted replay)
- * talks to. WebSerialVehicle (Pixhawk over USB, this pass) is the first
- * implementation; a PiRelayVehicle (Pixhawk -> Pi -> WebSocket) is a
- * same-interface drop-in for later if there's time, and a SimVehicle
- * (no hardware required) is the no-hardware demo fallback that doesn't
- * exist yet — see the project status notes. No UI code should ever
- * import WebSerialVehicle directly; it should only ever hold a
- * `VehicleLink`.
+ * talks to. WebSerialVehicle (Pixhawk over USB, straight from the
+ * browser) and PiRelayVehicle (Pixhawk -> Raspberry Pi -> WebSocket,
+ * for a setup with no telemetry radio where the Pi is only reachable
+ * over SSH — see bridge/README.md) are the two implementations; a
+ * SimVehicle (no hardware required) is the no-hardware demo fallback
+ * that doesn't exist yet — see the project status notes. No UI code
+ * should ever import WebSerialVehicle or PiRelayVehicle directly; it
+ * should only ever hold a `VehicleLink`.
  */
 import type { LatLng } from '@/lib/geo/types'
 
