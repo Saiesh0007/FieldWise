@@ -223,7 +223,7 @@ function App() {
             boundary={currentStep === 'simulate' ? null : boundary}
             fieldLoaded={boundary !== null}
             noSprayZones={noSprayZones}
-            sprayPlan={currentStep === 'simulate' ? null : sprayPlan}
+            sprayPlan={sprayPlan}
             planSplitPercent={planSplitPercent}
             planSplitDirection={planSplitDirection}
             projection={projection}
@@ -231,7 +231,7 @@ function App() {
             onSelectEdge={setSelectedEdgeId}
             showEdges={currentStep === 'verify'}
             showZones={currentStep !== 'send' && currentStep !== 'simulate'}
-            showPlan={currentStep === 'plan' || currentStep === 'export' || currentStep === 'send'}
+            showPlan={currentStep === 'plan' || currentStep === 'simulate' || currentStep === 'export' || currentStep === 'send'}
             drawTarget={drawTarget}
             onDrawFinish={handleDrawFinish}
             onDrawCancel={() => setDrawTarget(null)}
