@@ -4,6 +4,7 @@ import {
   MapMouseEvent,
   Marker as MapLibreMarker,
   NavigationControl,
+  setWorkerUrl,
   type LngLatBoundsLike,
 } from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
@@ -39,6 +40,21 @@ import type { ReplayHeatmap } from '@/lib/simulation/replay'
 // registering it eagerly here means it's never a race against the
 // map's own initial tile requests.
 registerResilientSatelliteProtocol()
+
+// MapLibre spins up its tile/geometry processing in a Web Worker,
+// loaded from a URL it derives relative to its own bundled location.
+// Vite's dev server preserves the package's file layout well enough for
+// that to resolve correctly (helped along by excluding maplibre-gl from
+// dependency pre-bundling, see vite.config.ts) — but a production build
+// hashes and relocates every file, so the derived URL 404s there and
+// the worker never starts, which silently breaks *everything* the
+// worker is needed for: every source/layer added in `map.on('load', …)`
+// — the boundary, obstacles, the spray plan, the drone marker, all of
+// it — simply never renders, with no thrown error to point at why.
+// Pointing MapLibre at an explicit, stable copy (public/, so Vite
+// copies it unhashed) sidesteps the relative-URL derivation entirely,
+// in both dev and production.
+setWorkerUrl(`${import.meta.env.BASE_URL}maplibre-gl-worker.mjs`)
 
 const SOURCE = {
   boundaryFill: 'boundary-fill',
