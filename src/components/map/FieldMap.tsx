@@ -474,6 +474,21 @@ export function FieldMap({
 
     map.addControl(new NavigationControl({ showCompass: false }), 'top-right')
 
+    // Keeps the WebGL canvas' backing size in sync with its container
+    // whenever that size changes for a reason other than the window
+    // firing 'resize' — the off-canvas sidebar drawer sliding open/shut,
+    // a CSS breakpoint changing the layout, or the browser's own page
+    // zoom shrinking/growing the layout viewport. Without this, MapLibre
+    // keeps rendering at whatever size the canvas was last told about,
+    // which on a mismatch shows as a blank/misaligned (often solid-color)
+    // map until something else happens to trigger a resize.
+    let resizeRaf = 0
+    const resizeObserver = new ResizeObserver(() => {
+      cancelAnimationFrame(resizeRaf)
+      resizeRaf = requestAnimationFrame(() => map.resize())
+    })
+    if (containerRef.current) resizeObserver.observe(containerRef.current)
+
     map.on('load', () => {
       map.addSource(SOURCE.boundaryFill, { type: 'geojson', data: EMPTY_FEATURE_COLLECTION })
       map.addLayer({
@@ -990,6 +1005,8 @@ export function FieldMap({
     window.addEventListener('mouseup', stopDraggingZoneVertex)
 
     return () => {
+      cancelAnimationFrame(resizeRaf)
+      resizeObserver.disconnect()
       window.removeEventListener('mouseup', stopDraggingPilot)
       window.removeEventListener('mouseup', stopDraggingZoneVertex)
       startMarkerRef.current?.remove()

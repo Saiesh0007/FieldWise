@@ -8,9 +8,11 @@ import { useFieldStore, type WorkflowStep, WORKFLOW_STEPS } from '@/store/useFie
 interface AppShellProps {
   children: ReactNode
   onOpenProjects: () => void
+  /** Fired whenever a step is picked from the stepper — lets the caller drop the mobile off-canvas panel back to the map. */
+  onStepSelect?: () => void
 }
 
-export function AppShell({ children, onOpenProjects }: AppShellProps) {
+export function AppShell({ children, onOpenProjects, onStepSelect }: AppShellProps) {
   const currentStep = useFieldStore((s) => s.currentStep)
   const setStep = useFieldStore((s) => s.setStep)
   const boundary = useFieldStore((s) => s.boundary)
@@ -34,12 +36,12 @@ export function AppShell({ children, onOpenProjects }: AppShellProps) {
 
   return (
     <div className="flex min-h-full flex-col bg-(--surface-app)">
-      <header className="flex items-center justify-between gap-4 border-b border-(--border-subtle) bg-(--surface-panel) px-6 py-3">
-        <div className="flex items-center gap-3">
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-brand-600 text-sm font-bold text-white">
+      <header className="flex flex-wrap items-center justify-between gap-3 border-b border-(--border-subtle) bg-(--surface-panel) px-3 py-2.5 sm:gap-4 sm:px-6 sm:py-3">
+        <div className="flex shrink-0 items-center gap-2.5 sm:gap-3">
+          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-brand-600 text-sm font-bold text-white">
             FW
           </div>
-          <div className="leading-tight">
+          <div className="hidden leading-tight sm:block">
             <div className="text-sm font-semibold text-(--text-primary)">FieldWise</div>
             <button
               type="button"
@@ -59,10 +61,21 @@ export function AppShell({ children, onOpenProjects }: AppShellProps) {
           </div>
         </div>
 
-        <Stepper current={currentStep} unlocked={unlocked} onSelect={setStep} />
+        <div className="order-3 w-full overflow-x-auto sm:order-none sm:w-auto sm:overflow-visible">
+          <Stepper
+            current={currentStep}
+            unlocked={unlocked}
+            onSelect={(step) => {
+              setStep(step)
+              onStepSelect?.()
+            }}
+          />
+        </div>
 
-        <div className="flex shrink-0 items-center gap-2.5">
-          <RecomputeTimingBadge lastRecomputeMs={lastRecomputeMs} />
+        <div className="flex shrink-0 items-center gap-1.5 sm:gap-2.5">
+          <div className="hidden md:block">
+            <RecomputeTimingBadge lastRecomputeMs={lastRecomputeMs} />
+          </div>
           <ReadinessBadge readiness={readiness} />
           <SettingsMenu />
         </div>

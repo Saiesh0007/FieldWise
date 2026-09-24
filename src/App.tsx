@@ -46,6 +46,11 @@ function App() {
   const [dronePreviewPosition, setDronePreviewPosition] = useState<{ lat: number; lon: number; headingDeg: number } | null>(null)
   const [flyTo, setFlyTo] = useState<FlyToRequest | null>(null)
   const [projectsOpen, setProjectsOpen] = useState(false)
+  // Below the `lg` breakpoint the step panel becomes an off-canvas
+  // drawer over the map (rather than a flex sibling squeezing it) —
+  // closed by default so the map is what a phone/small-tablet user
+  // sees first, opened via the floating toggle button.
+  const [mobilePanelOpen, setMobilePanelOpen] = useState(false)
 
   // Drone point-capture state — active while the user is in "Drone" plot-creation mode.
   const [droneCaptureActive, setDroneCaptureActive] = useState(false)
@@ -172,11 +177,30 @@ function App() {
   }, [setBoundary])
 
   return (
-    <AppShell onOpenProjects={() => setProjectsOpen(true)}>
+    <AppShell onOpenProjects={() => setProjectsOpen(true)} onStepSelect={() => setMobilePanelOpen(false)}>
       <ProjectsPanel open={projectsOpen} onClose={() => setProjectsOpen(false)} />
-      <div className="flex flex-1 min-h-0">
-        <aside className="w-[380px] shrink-0 overflow-hidden border-r border-(--border-subtle) bg-(--surface-app)">
-          <div key={currentStep} className="panel-transition h-full">
+      <div className="relative flex flex-1 min-h-0">
+        {/* Backdrop — mobile/tablet only, closes the drawer on tap-outside. */}
+        {mobilePanelOpen && (
+          <button
+            type="button"
+            aria-label="Close panel"
+            onClick={() => setMobilePanelOpen(false)}
+            className="fixed inset-0 z-30 bg-black/30 lg:hidden"
+          />
+        )}
+
+        {/* Below `lg`, this is a fixed off-canvas drawer sliding over the
+            map (so it never steals width from the map's flex box, which
+            is what was collapsing the map to 0px and showing a blank/white
+            view on narrow viewports); at `lg`+ it's back in normal flow
+            as a fixed-width sidebar next to the map. */}
+        <aside
+          className={`fixed inset-y-0 left-0 z-40 w-[85vw] max-w-[380px] shrink-0 overflow-hidden border-r border-(--border-subtle) bg-(--surface-app) transition-transform duration-200 ease-out lg:static lg:z-auto lg:w-[340px] lg:translate-x-0 xl:w-[380px] ${
+            mobilePanelOpen ? 'translate-x-0 shadow-2xl' : '-translate-x-full'
+          }`}
+        >
+          <div key={currentStep} className="panel-transition h-full overflow-y-auto">
             {currentStep === 'import' && (
               <ImportPanel
                 drawTarget={drawTarget}
@@ -218,7 +242,19 @@ function App() {
           </div>
         </aside>
 
-        <div className="flex-1 min-w-0">
+        <div className="relative min-h-0 min-w-0 flex-1">
+          {/* Floating panel toggle — only needed below `lg`, where the
+              sidebar is an off-canvas drawer instead of always-visible. */}
+          <button
+            type="button"
+            onClick={() => setMobilePanelOpen((v) => !v)}
+            aria-label={mobilePanelOpen ? 'Close panel' : 'Open panel'}
+            className="absolute left-2.5 top-2.5 z-20 flex h-9 w-9 items-center justify-center rounded-md border border-(--border-subtle) bg-(--surface-panel) text-(--text-secondary) shadow-(--shadow-panel) transition-colors hover:bg-(--surface-panel-raised) lg:hidden"
+          >
+            <svg viewBox="0 0 16 16" fill="none" className="h-4 w-4" aria-hidden="true">
+              <path d="M2 4h12M2 8h12M2 12h12" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+            </svg>
+          </button>
           <FieldMap
             boundary={currentStep === 'simulate' ? null : boundary}
             fieldLoaded={boundary !== null}
