@@ -1,0 +1,249 @@
+/**
+ * The boustrophedon sweep planner. Ties together heading resolution,
+ * no-spray-zone clipping, and tank-aware sortie splitting into a single
+ * `planSprayPath` entry point — this is the function the correction flow
+ * calls on every edit for the ~1s re-plan, and what the Blind vs. Sighted
+ * replay runs twice against different boundaries.
+ *
+ * Approach: rotate the sprayable area into "sweep space" (sweep direction
+ * = +x axis, rows = horizontal lines of constant y), run the scanline
+ * even-odd algorithm from math.ts at each row to get one or more spray
+ * segments per row (this is what makes concave fields and no-spray zones
+ * "just work" — a row that dips into a concavity or crosses a zone comes
+ * back as multiple disjoint segments automatically), order the segments
+ * boustrophedon-style (alternating direction per row) connected by
+ * transit legs, then rotate back to field-local space.
+ */
+import { splitIntoSorties } from './droneProfile'
+import { minTurnsHeadingRad, polygonAreaM2, rotate, scanlineSpans } from './math'
+import { multiPolygonAreaM2, subtractNoSprayZones, type LocalPolygon } from './noSprayZones'
+import type { DroneProfile, LocalPoint, SprayPass, SprayPlan, SweepStrategy } from './types'
+
+export interface PlanSprayPathParams {
+  boundaryLocal: LocalPoint[]
+  noSprayZonesLocal: LocalPoint[][]
+  droneProfile: DroneProfile
+  sweepStrategy: SweepStrategy
+  /** Overlap between adjacent passes as a fraction of swath (0.1 = 10% overlap). Defaults to 0. */
+  overlapFraction?: number
+  /** Launch/refill point; defaults to the boundary's first vertex. */
+  homePoint?: LocalPoint
+  /**
+   * Manual row-spacing override, meters (AeroGCS Green §11.3 "Adjust
+   * Spacing") — when set, used directly as the distance between sweep
+   * rows instead of the profile-derived `swathM * (1 - overlapFraction)`.
+   * Lets a pilot tighten or loosen coverage independent of the drone
+   * profile's own swath figure, e.g. to compensate for wind drift.
+   */
+  spacingOverrideM?: number
+}
+
+function resolveHeadingRad(strategy: SweepStrategy, boundaryLocal: LocalPoint[]): number {
+  switch (strategy.kind) {
+    case 'min-turns':
+      return minTurnsHeadingRad(boundaryLocal)
+    case 'fixed-heading':
+    case 'crop-row':
+      return (strategy.headingDeg * Math.PI) / 180
+  }
+}
+
+function emptyPlan(headingRad: number): SprayPlan {
+  return {
+    sorties: [],
+    totalDistanceM: 0,
+    totalVolumeL: 0,
+    totalEstimatedMinutes: 0,
+    areaHa: 0,
+    headingDeg: (headingRad * 180) / Math.PI,
+  }
+}
+
+export function planSprayPath(params: PlanSprayPathParams): SprayPlan {
+  const { boundaryLocal, noSprayZonesLocal, droneProfile, sweepStrategy, overlapFraction = 0 } = params
+  if (params.spacingOverrideM !== undefined && params.spacingOverrideM <= 0) {
+    throw new Error('spacingOverrideM must be a positive number of meters')
+  }
+  const homePoint = params.homePoint ?? boundaryLocal[0]
+
+  const headingRad = resolveHeadingRad(sweepStrategy, boundaryLocal)
+  const sprayable = subtractNoSprayZones(boundaryLocal, noSprayZonesLocal)
+  const areaM2 = multiPolygonAreaM2(sprayable, polygonAreaM2)
+
+  if (areaM2 <= 0 || sprayable.length === 0) {
+    return emptyPlan(headingRad)
+  }
+
+  // Rotate every ring of every sprayable polygon into sweep space.
+  const rotatedPolys: LocalPolygon[] = sprayable.map((poly) => poly.map((ring) => ring.map((p) => rotate(p, -headingRad))))
+  const allRotatedPoints = rotatedPolys.flat(2)
+
+  const spacing = params.spacingOverrideM ?? droneProfile.swathM * (1 - overlapFraction)
+  const yMin = Math.min(...allRotatedPoints.map((p) => p.y))
+  const yMax = Math.max(...allRotatedPoints.map((p) => p.y))
+
+  // Rows of [x0, x1] spans, keyed by row y — a row can carry multiple
+  // disjoint spans (a concave dent, or a no-spray zone bisecting it).
+  const rowsMap = new Map<number, Array<[number, number]>>()
+
+  // First row half a swath in from the extreme edge so the outermost
+  // strip is centered under a pass rather than sitting right at its rim.
+  let y = yMin + droneProfile.swathM / 2
+  while (y <= yMax - droneProfile.swathM / 2 + 1e-9) {
+    for (const poly of rotatedPolys) {
+      const spans = scanlineSpans(poly, y)
+      if (spans.length > 0) {
+        const existing = rowsMap.get(y) ?? []
+        rowsMap.set(y, [...existing, ...spans])
+      }
+    }
+    y += spacing
+  }
+
+  const rowYs = [...rowsMap.keys()].sort((a, b) => a - b)
+
+  // Boustrophedon ordering: alternate left-to-right / right-to-left per
+  // row, connecting every segment (within a row, and between rows) with
+  // an explicit transit leg so position tracking stays continuous.
+  const orderedRotated: Array<{ start: LocalPoint; end: LocalPoint; spraying: boolean }> = []
+  let cursor: LocalPoint | null = null
+
+  rowYs.forEach((rowY, rowIdx) => {
+    const segments = [...(rowsMap.get(rowY) ?? [])].sort((a, b) => a[0] - b[0])
+    const orderedSegments = rowIdx % 2 === 0 ? segments : [...segments].reverse()
+
+    for (const [x0, x1] of orderedSegments) {
+      const [fromX, toX] = rowIdx % 2 === 0 ? [x0, x1] : [x1, x0]
+      const start: LocalPoint = { x: fromX, y: rowY }
+      const end: LocalPoint = { x: toX, y: rowY }
+
+      if (cursor) {
+        orderedRotated.push({ start: cursor, end: start, spraying: false })
+      }
+      orderedRotated.push({ start, end, spraying: true })
+      cursor = end
+    }
+  })
+
+  // Rotate back to field-local space.
+  const passes: SprayPass[] = orderedRotated.map((seg) => ({
+    start: rotate(seg.start, headingRad),
+    end: rotate(seg.end, headingRad),
+    spraying: seg.spraying,
+  }))
+
+  const sorties = splitIntoSorties(passes, droneProfile, homePoint)
+
+  return {
+    sorties,
+    totalDistanceM: sorties.reduce((s, sortie) => s + sortie.distanceM, 0),
+    totalVolumeL: sorties.reduce((s, sortie) => s + sortie.volumeL, 0),
+    totalEstimatedMinutes: sorties.reduce((s, sortie) => s + sortie.estimatedMinutes, 0),
+    areaHa: areaM2 / 10_000,
+    headingDeg: (headingRad * 180) / Math.PI,
+  }
+}
+
+/**
+ * "Move Plan" (AeroGCS Green §11.7) — shifts every pass in an already-
+ * generated plan by a fixed local-meter offset, without touching the
+ * boundary, zones, or re-running the planner. A pure geometric
+ * translation: distances, areas, sortie/volume/time totals are all
+ * unchanged by a shift, so only each pass's start/end move.
+ */
+export function translateSprayPlan(plan: SprayPlan, offset: LocalPoint): SprayPlan {
+  if (offset.x === 0 && offset.y === 0) return plan
+
+  const shift = (p: LocalPoint): LocalPoint => ({ x: p.x + offset.x, y: p.y + offset.y })
+
+  return {
+    ...plan,
+    sorties: plan.sorties.map((sortie) => ({
+      ...sortie,
+      passes: sortie.passes.map((pass) => ({ ...pass, start: shift(pass.start), end: shift(pass.end) })),
+    })),
+  }
+}
+
+/**
+ * The mission's actual start point — where spraying begins (the first
+ * *spraying* pass's start point), not the launch/refill point. Every
+ * sortie opens with a non-spraying transit leg out from the home point
+ * (`splitIntoSorties` in droneProfile.ts), so taking the literal first
+ * pass here would return the home point instead — which is also the
+ * literal *last* pass's end point (every sortie closes with a transit
+ * leg back to home for refill accounting), making Start and Finish
+ * collapse onto the same coordinate for every plan. Skipping to the
+ * first/last spraying pass gives the actual route's endpoints, which is
+ * what AeroGCS Green's Start/Finish markers show. Null for an empty plan
+ * (e.g. a fully-excluded field).
+ */
+export function planStartPoint(plan: SprayPlan): LocalPoint | null {
+  for (const sortie of plan.sorties) {
+    const firstSpray = sortie.passes.find((p) => p.spraying)
+    if (firstSpray) return firstSpray.start
+  }
+  return null
+}
+
+/** The mission's actual finish point — the last *spraying* pass's end point. See `planStartPoint` for why this skips trailing transit-home legs. Null for an empty plan. */
+export function planFinishPoint(plan: SprayPlan): LocalPoint | null {
+  for (let i = plan.sorties.length - 1; i >= 0; i--) {
+    const passes = plan.sorties[i].passes
+    for (let j = passes.length - 1; j >= 0; j--) {
+      if (passes[j].spraying) return passes[j].end
+    }
+  }
+  return null
+}
+
+export interface PlanSplit {
+  /** The portion of the route this sortie is meant to fly (AeroGCS Green's "yellow" line). */
+  included: SprayPass[]
+  /** The portion deferred to a later battery/sortie ("blue" line) — not flown this pass. */
+  excluded: SprayPass[]
+}
+
+/** Which end(s) of the route `percent`% is measured from — AeroGCS Green offers all three. */
+export type PlanSplitDirection = 'from-start' | 'from-end' | 'from-both'
+
+/**
+ * "Plan Splitting" (AeroGCS Green §11.8) — lets a pilot manually mark
+ * `percent`% of the plan's passes, by pass count in flight order across
+ * every sortie, as the portion to actually fly this battery, deferring
+ * the rest. Purely a display/upload-subset split on an already-
+ * generated plan — it doesn't recompute sorties, tank volumes, or
+ * timing, since a partial flight's own battery/tank accounting is a
+ * separate concern from "which passes."
+ *
+ * `from-start` / `from-end` take a contiguous prefix or suffix.
+ * `from-both` splits the included percentage evenly across *both*
+ * ends (e.g. "do the two edges of the field now, the middle later"),
+ * so `included` is two contiguous chunks and `excluded` is the single
+ * chunk between them — still in original flight order within each
+ * chunk, since that's what keeps every chunk on its own a sensible,
+ * flyable sub-route.
+ */
+export function splitPlanPasses(plan: SprayPlan, percent: number, direction: PlanSplitDirection): PlanSplit {
+  const allPasses = plan.sorties.flatMap((sortie) => sortie.passes)
+  const total = allPasses.length
+  if (percent >= 100 || total === 0) return { included: allPasses, excluded: [] }
+  if (percent <= 0) return { included: [], excluded: allPasses }
+
+  if (direction === 'from-start') {
+    const cutCount = Math.round((total * percent) / 100)
+    return { included: allPasses.slice(0, cutCount), excluded: allPasses.slice(cutCount) }
+  }
+  if (direction === 'from-end') {
+    const cutCount = Math.round((total * percent) / 100)
+    return { included: allPasses.slice(total - cutCount), excluded: allPasses.slice(0, total - cutCount) }
+  }
+
+  // from-both: half the included percentage from each end — clamped to
+  // at most half the plan per side so the two chunks never overlap.
+  const halfCount = Math.min(Math.round((total * percent) / 100 / 2), Math.floor(total / 2))
+  return {
+    included: [...allPasses.slice(0, halfCount), ...allPasses.slice(total - halfCount)],
+    excluded: allPasses.slice(halfCount, total - halfCount),
+  }
+}

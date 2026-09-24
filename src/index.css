@@ -1,0 +1,138 @@
+@import "tailwindcss";
+@import "@fontsource/inter/400.css";
+@import "@fontsource/inter/500.css";
+@import "@fontsource/inter/600.css";
+@import "@fontsource/inter/700.css";
+
+/* -----------------------------------------------------------------------
+ * Design tokens
+ *
+ * FieldWise is a product, not a hackathon toy — the palette below is the
+ * single source of truth for color/spacing/radius across the app. Domain
+ * meaning is baked into the names (e.g. --color-provenance-*) so
+ * components never hardcode "amber = unverified" logic themselves.
+ * ---------------------------------------------------------------------*/
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --font-mono: "SFMono-Regular", ui-monospace, "Cascadia Code", Menlo, Consolas, monospace;
+
+  /* Brand — deep teal/emerald, agriculture + tech without going "eco cliché" */
+  --color-brand-50: #eefbf6;
+  --color-brand-100: #d5f5e9;
+  --color-brand-200: #ade9d4;
+  --color-brand-300: #78d6ba;
+  --color-brand-400: #43ba9c;
+  --color-brand-500: #279d82;
+  --color-brand-600: #1a7e69;
+  --color-brand-700: #176456;
+  --color-brand-800: #164f46;
+  --color-brand-900: #14413a;
+  --color-brand-950: #072521;
+
+  /* Neutrals — cool slate, used for chrome/surfaces/text */
+  --color-ink-50: #f6f7f8;
+  --color-ink-100: #eceef1;
+  --color-ink-200: #d5d9e0;
+  --color-ink-300: #b1b9c4;
+  --color-ink-400: #8691a2;
+  --color-ink-500: #667186;
+  --color-ink-600: #515b70;
+  --color-ink-700: #424a5c;
+  --color-ink-800: #2b303c;
+  --color-ink-900: #1a1d24;
+  --color-ink-950: #0f1116;
+
+  /* Provenance — the trust model is core UI, not decoration */
+  --color-provenance-satellite: #d97706; /* amber — unverified, stale prior */
+  --color-provenance-satellite-bg: #fef3e2;
+  --color-provenance-walked: #2563eb; /* blue — in progress / partially verified */
+  --color-provenance-walked-bg: #eaf1fe;
+  --color-provenance-confirmed: #16a34a; /* green — verified, cleared */
+  --color-provenance-confirmed-bg: #e9f9ee;
+  --color-provenance-accepted: #7c3aed; /* violet — risk knowingly accepted, NOT verified; must never read as "walked" */
+  --color-provenance-accepted-bg: #f3ebfe;
+
+  /* Semantic status */
+  --color-danger: #dc2626;
+  --color-danger-bg: #fdecec;
+  --color-warning: #d97706;
+  --color-warning-bg: #fef3e2;
+  --color-success: #16a34a;
+  --color-success-bg: #e9f9ee;
+
+  --radius-card: 0.75rem;
+  --radius-control: 0.5rem;
+
+  --shadow-panel: 0 1px 2px rgba(15, 17, 22, 0.06), 0 8px 24px -8px rgba(15, 17, 22, 0.12);
+}
+
+:root {
+  color-scheme: light;
+  --surface-app: var(--color-ink-50);
+  --surface-panel: #ffffff;
+  /* Distinct from BOTH --surface-panel (white cards/buttons) and
+     --surface-app (the ink-50 sidebar backdrop those cards sit on) on
+     purpose: every hover:bg-(--surface-panel-raised) across the app
+     (buttons, stepper, edge rows) relies on this actually reading as a
+     lift, not a sink back into the backdrop. It was previously #ffffff,
+     identical to --surface-panel, which made those hover states
+     invisible in light mode. */
+  --surface-panel-raised: var(--color-ink-100);
+  --border-subtle: var(--color-ink-200);
+  --text-primary: var(--color-ink-900);
+  --text-secondary: var(--color-ink-600);
+  --text-muted: var(--color-ink-400);
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --surface-app: var(--color-ink-950);
+  --surface-panel: var(--color-ink-900);
+  --surface-panel-raised: var(--color-ink-800);
+  --border-subtle: var(--color-ink-700);
+  --text-primary: var(--color-ink-50);
+  --text-secondary: var(--color-ink-300);
+  --text-muted: var(--color-ink-500);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  font-family: var(--font-sans);
+  background: var(--surface-app);
+  color: var(--text-primary);
+  -webkit-font-smoothing: antialiased;
+}
+
+#root {
+  display: flex;
+  flex-direction: column;
+}
+
+/* Subtle step-change transition for the sidebar panels — applied via a
+   `key`-remounted wrapper in App.tsx, so switching steps reads as a
+   deliberate transition rather than an instant content swap. Small and
+   fast on purpose: this is wayfinding polish, not a loading screen. */
+@keyframes panel-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.panel-transition {
+  animation: panel-fade-in 180ms ease-out;
+}

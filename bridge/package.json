@@ -1,0 +1,16 @@
+{
+  "name": "fieldwise-bridge",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Runs on the Raspberry Pi: opens the Pixhawk's USB serial port and relays raw MAVLink bytes over a WebSocket, so the FieldWise browser app (running on a different computer, with no telemetry radio) can reach it. See README.md.",
+  "type": "module",
+  "main": "serial-ws-bridge.mjs",
+  "scripts": {
+    "start": "node serial-ws-bridge.mjs",
+    "mock": "node serial-ws-bridge.mjs --mock"
+  },
+  "dependencies": {
+    "serialport": "^13.0.0",
+    "ws": "^8.21.3"
+  }
+}
